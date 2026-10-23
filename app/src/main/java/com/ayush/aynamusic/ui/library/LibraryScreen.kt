@@ -47,6 +47,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -97,6 +98,7 @@ enum class LibraryTab(val label: String) {
 @Composable
 fun LibraryScreen(
     playlists: List<PlaylistSummary>,
+    importStates: Map<String, com.ayush.aynamusic.data.model.PlaylistImportState> = emptyMap(),
     favorites: List<Track>,
     downloads: List<Track>,
     recent: List<Track>,
@@ -264,6 +266,7 @@ fun LibraryScreen(
             when (selectedTab) {
                 LibraryTab.PLAYLISTS -> PlaylistsContent(
                     playlists = filteredPlaylists,
+                    importStates = importStates,
                     onCreate = { showCreateDialog = true },
                     onOpenPlaylist = onOpenPlaylist
                 )
@@ -374,6 +377,7 @@ private fun LibraryTabPill(tab: LibraryTab, selected: Boolean, onClick: () -> Un
 @Composable
 private fun PlaylistsContent(
     playlists: List<PlaylistSummary>,
+    importStates: Map<String, com.ayush.aynamusic.data.model.PlaylistImportState>,
     onCreate: () -> Unit,
     onOpenPlaylist: (String) -> Unit
 ) {
@@ -410,7 +414,11 @@ private fun PlaylistsContent(
             NewPlaylistTile(onClick = onCreate)
         }
         items(playlists, key = { it.id }) { playlist ->
-            PlaylistTile(playlist = playlist, onClick = { onOpenPlaylist(playlist.id) })
+            PlaylistTile(
+                playlist = playlist,
+                importState = importStates[playlist.id],
+                onClick = { onOpenPlaylist(playlist.id) }
+            )
         }
         if (playlists.isEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
@@ -427,7 +435,13 @@ private fun PlaylistsContent(
 }
 
 @Composable
-private fun PlaylistTile(playlist: PlaylistSummary, onClick: () -> Unit) {
+private fun PlaylistTile(
+    playlist: PlaylistSummary,
+    importState: com.ayush.aynamusic.data.model.PlaylistImportState?,
+    onClick: () -> Unit
+) {
+    val isImporting = importState != null && !importState.isDone
+
     Column(
         Modifier
             .clip(RoundedCornerShape(20.dp))
@@ -469,7 +483,7 @@ private fun PlaylistTile(playlist: PlaylistSummary, onClick: () -> Unit) {
                     .height(56.dp)
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f))
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.65f))
                         )
                     )
             )
@@ -479,17 +493,44 @@ private fun PlaylistTile(playlist: PlaylistSummary, onClick: () -> Unit) {
                     .padding(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    Icons.Rounded.LibraryMusic,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.88f),
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(Modifier.width(5.dp))
-                Text(
-                    "${playlist.trackCount} tracks",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.9f)
+                if (isImporting && importState != null) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(12.dp),
+                        strokeWidth = 2.dp,
+                        color = Mint
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "${importState.current}/${importState.total}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Mint,
+                        fontWeight = FontWeight.Bold
+                    )
+                } else {
+                    Icon(
+                        Icons.Rounded.LibraryMusic,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.88f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        "${playlist.trackCount} tracks",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.9f)
+                    )
+                }
+            }
+
+            if (isImporting && importState != null) {
+                LinearProgressIndicator(
+                    progress = { importState.progressFraction },
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .height(4.dp),
+                    color = Mint,
+                    trackColor = Color.White.copy(alpha = 0.2f)
                 )
             }
         }
@@ -502,9 +543,15 @@ private fun PlaylistTile(playlist: PlaylistSummary, onClick: () -> Unit) {
             modifier = Modifier.padding(top = 9.dp)
         )
         Text(
-            if (playlist.description.isNullOrBlank()) "Playlist" else playlist.description,
+            if (isImporting && importState != null) {
+                "Importing • ${importState.current} of ${importState.total}"
+            } else if (playlist.description.isNullOrBlank()) {
+                "Playlist"
+            } else {
+                playlist.description
+            },
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (isImporting) Mint else MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 1.dp)

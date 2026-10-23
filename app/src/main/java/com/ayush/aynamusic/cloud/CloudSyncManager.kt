@@ -86,7 +86,7 @@ class CloudSyncManager(
         localPlaylists.forEach { playlistMap[it.id] = it }
         remote?.playlists?.forEach { remotePlaylist ->
             val local = playlistMap[remotePlaylist.id]
-            if (local == null || remotePlaylist.updatedAt > local.updatedAt) {
+            if (local == null || (remotePlaylist.updatedAt > local.updatedAt && remotePlaylist.tracks.size >= local.tracks.size)) {
                 playlistMap[remotePlaylist.id] = remotePlaylist
                 library.importPlaylistFromCloud(
                     PlaylistEntity(

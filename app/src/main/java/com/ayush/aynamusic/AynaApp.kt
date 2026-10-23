@@ -109,6 +109,7 @@ fun AynaApp(viewModel: MainViewModel) {
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
     val recent by viewModel.recent.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val importStates by viewModel.importStates.collectAsStateWithLifecycle()
     val localTracks by viewModel.localTracks.collectAsStateWithLifecycle()
     val localLoading by viewModel.localLoading.collectAsStateWithLifecycle()
     val audioPermission by viewModel.audioPermission.collectAsStateWithLifecycle()
@@ -295,6 +296,7 @@ fun AynaApp(viewModel: MainViewModel) {
                         composable(Routes.LIBRARY) {
                             LibraryScreen(
                                 playlists = playlists,
+                                importStates = importStates,
                                 favorites = favorites,
                                 downloads = downloads,
                                 recent = recent,
@@ -342,6 +344,7 @@ fun AynaApp(viewModel: MainViewModel) {
                             val tracks by tracksFlow.collectAsStateWithLifecycle(initialValue = emptyList())
                             PlaylistScreen(
                                 playlist = playlist,
+                                importState = importStates[playlistId],
                                 tracks = tracks,
                                 userStates = userStates,
                                 currentTrackId = playbackState.currentTrack?.id,
@@ -356,6 +359,7 @@ fun AynaApp(viewModel: MainViewModel) {
                                     navController.navigate(Routes.SEARCH) { launchSingleTop = true }
                                 },
                                 onRename = { name -> viewModel.renamePlaylist(playlistId, name) },
+                                onUpdateCover = { url -> viewModel.updatePlaylistCover(playlistId, url) },
                                 onDelete = {
                                     navController.popBackStack()
                                     viewModel.deletePlaylist(playlistId)

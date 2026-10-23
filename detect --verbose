@@ -1,0 +1,56 @@
+[35m.gitignore[m[36m:[m# Local configuration & [1;31mSecret[ms
+[35m.gitignore[m[36m:[m[1;31msecret[ms.properties
+[35mREADME.md[m[36m:[m- `AYNA_STORE_[1;31mPASSWORD[m`
+[35mREADME.md[m[36m:[m- `AYNA_KEY_[1;31mPASSWORD[m`
+[35mapp/build.gradle.kts[m[36m:[m                store[1;31mPassword[m = System.getenv("AYNA_STORE_[1;31mPASSWORD[m") ?: "AynaMusic2026!"
+[35mapp/build.gradle.kts[m[36m:[m                key[1;31mPassword[m = System.getenv("AYNA_KEY_[1;31mPASSWORD[m") ?: "AynaMusic2026!"
+[35mapp/src/main/java/com/ayush/aynamusic/AynaApplication.kt[m[36m:[mimport com.ayush.aynamusic.data.prefs.[1;31mSecret[mStore
+[35mapp/src/main/java/com/ayush/aynamusic/AynaApplication.kt[m[36m:[m    val [1;31msecret[ms = [1;31mSecret[mStore(context)
+[35mapp/src/main/java/com/ayush/aynamusic/AynaApplication.kt[m[36m:[m    val cloudSync = CloudSyncManager(context, library, settings, [1;31msecret[ms)
+[35mapp/src/main/java/com/ayush/aynamusic/MainViewModel.kt[m[36m:[mimport androidx.media3.session.Session[1;31mToken[m
+[35mapp/src/main/java/com/ayush/aynamusic/MainViewModel.kt[m[36m:[mimport com.ayush.aynamusic.data.prefs.[1;31mSecret[mStore
+[35mapp/src/main/java/com/ayush/aynamusic/MainViewModel.kt[m[36m:[m        val [1;31mtoken[m = Session[1;31mToken[m(
+[35mapp/src/main/java/com/ayush/aynamusic/MainViewModel.kt[m[36m:[m        val future = MediaController.Builder(getApplication(), [1;31mtoken[m).buildAsync()
+[35mapp/src/main/java/com/ayush/aynamusic/MainViewModel.kt[m[36m:[m    fun saveCloudConfig(url: String, user: String, [1;31mpassword[m: String) {
+[35mapp/src/main/java/com/ayush/aynamusic/MainViewModel.kt[m[36m:[m            if ([1;31mpassword[m.isNotBlank()) {
+[35mapp/src/main/java/com/ayush/aynamusic/MainViewModel.kt[m[36m:[m                container.[1;31msecret[ms.put([1;31mSecret[mStore.KEY_CLOUD_[1;31mPASSWORD[m, [1;31mpassword[m)
+[35mapp/src/main/java/com/ayush/aynamusic/MainViewModel.kt[m[36m:[m            container.[1;31msecret[ms.remove([1;31mSecret[mStore.KEY_CLOUD_[1;31mPASSWORD[m)
+[35mapp/src/main/java/com/ayush/aynamusic/cloud/CloudSyncManager.kt[m[36m:[mimport com.ayush.aynamusic.data.prefs.[1;31mSecret[mStore
+[35mapp/src/main/java/com/ayush/aynamusic/cloud/CloudSyncManager.kt[m[36m:[m    private val [1;31msecret[ms: [1;31mSecret[mStore
+[35mapp/src/main/java/com/ayush/aynamusic/cloud/CloudSyncManager.kt[m[36m:[m        val [1;31mpassword[m = [1;31msecret[ms.get([1;31mSecret[mStore.KEY_CLOUD_[1;31mPASSWORD[m)
+[35mapp/src/main/java/com/ayush/aynamusic/cloud/CloudSyncManager.kt[m[36m:[m        val remoteRaw = download(config.cloudUrl, config.cloudUser, [1;31mpassword[m)
+[35mapp/src/main/java/com/ayush/aynamusic/cloud/CloudSyncManager.kt[m[36m:[m        upload(config.cloudUrl, config.cloudUser, [1;31mpassword[m, merged.toString())
+[35mapp/src/main/java/com/ayush/aynamusic/cloud/CloudSyncManager.kt[m[36m:[m    private fun download(url: String, user: String, [1;31mpassword[m: String?): String? {
+[35mapp/src/main/java/com/ayush/aynamusic/cloud/CloudSyncManager.kt[m[36m:[m        addAuth(builder, user, [1;31mpassword[m)
+[35mapp/src/main/java/com/ayush/aynamusic/cloud/CloudSyncManager.kt[m[36m:[m    private fun upload(url: String, user: String, [1;31mpassword[m: String?, json: String) {
+[35mapp/src/main/java/com/ayush/aynamusic/cloud/CloudSyncManager.kt[m[36m:[m        addAuth(builder, user, [1;31mpassword[m)
+[35mapp/src/main/java/com/ayush/aynamusic/cloud/CloudSyncManager.kt[m[36m:[m    private fun addAuth(builder: Request.Builder, user: String, [1;31mpassword[m: String?) {
+[35mapp/src/main/java/com/ayush/aynamusic/cloud/CloudSyncManager.kt[m[36m:[m            builder.header("Authorization", Credentials.basic(user, [1;31mpassword[m.orEmpty()))
+[35mapp/src/main/java/com/ayush/aynamusic/cloud/CloudSyncWorker.kt[m[36m:[m            this is IOException && text.contains("401") -> "WebDAV sign-in failed. Check your username and app [1;31mpassword[m."
+[35mapp/src/main/java/com/ayush/aynamusic/data/prefs/SecretStore.kt[m[36m:[mimport javax.crypto.[1;31mSecret[mKey
+[35mapp/src/main/java/com/ayush/aynamusic/data/prefs/SecretStore.kt[m[36m:[m * Small Keystore-backed [1;31msecret[m store used for WebDAV credentials.
+[35mapp/src/main/java/com/ayush/aynamusic/data/prefs/SecretStore.kt[m[36m:[m * [1;31mSecret[ms never leave the process in plaintext at rest.
+[35mapp/src/main/java/com/ayush/aynamusic/data/prefs/SecretStore.kt[m[36m:[mclass [1;31mSecret[mStore(context: Context) {
+[35mapp/src/main/java/com/ayush/aynamusic/data/prefs/SecretStore.kt[m[36m:[m        context.getSharedPreferences("ayna_[1;31msecret[ms", Context.MODE_PRIVATE)
+[35mapp/src/main/java/com/ayush/aynamusic/data/prefs/SecretStore.kt[m[36m:[m    private fun getOrCreateKey(): [1;31mSecret[mKey {
+[35mapp/src/main/java/com/ayush/aynamusic/data/prefs/SecretStore.kt[m[36m:[m        (keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.[1;31mSecret[mKeyEntry)?.let { return it.[1;31msecret[mKey }
+[35mapp/src/main/java/com/ayush/aynamusic/data/prefs/SecretStore.kt[m[36m:[m        const val KEY_CLOUD_[1;31mPASSWORD[m = "cloud_[1;31mpassword[m"
+[35mapp/src/main/java/com/ayush/aynamusic/data/remote/MusicCatalogRepository.kt[m[36m:[mimport javax.crypto.spec.[1;31mSecret[mKeySpec
+[35mapp/src/main/java/com/ayush/aynamusic/data/remote/MusicCatalogRepository.kt[m[36m:[m            val keySpec = [1;31mSecret[mKeySpec(key, "DES")
+[35mapp/src/main/java/com/ayush/aynamusic/ui/settings/CloudSyncScreen.kt[m[36m:[mimport androidx.compose.ui.text.input.[1;31mPassword[mVisualTransformation
+[35mapp/src/main/java/com/ayush/aynamusic/ui/settings/CloudSyncScreen.kt[m[36m:[m    var [1;31mpassword[m by rememberSaveable { mutableStateOf("") }
+[35mapp/src/main/java/com/ayush/aynamusic/ui/settings/CloudSyncScreen.kt[m[36m:[m    var [1;31mpassword[mVisible by rememberSaveable { mutableStateOf(false) }
+[35mapp/src/main/java/com/ayush/aynamusic/ui/settings/CloudSyncScreen.kt[m[36m:[m        onSaveConfig(clean, user.trim(), [1;31mpassword[m)
+[35mapp/src/main/java/com/ayush/aynamusic/ui/settings/CloudSyncScreen.kt[m[36m:[m        [1;31mpassword[m = ""
+[35mapp/src/main/java/com/ayush/aynamusic/ui/settings/CloudSyncScreen.kt[m[36m:[m                                value = [1;31mpassword[m,
+[35mapp/src/main/java/com/ayush/aynamusic/ui/settings/CloudSyncScreen.kt[m[36m:[m                                onValueChange = { [1;31mpassword[m = it },
+[35mapp/src/main/java/com/ayush/aynamusic/ui/settings/CloudSyncScreen.kt[m[36m:[m                                        if (settings.cloudConfigured) "[1;31mPassword[m (leave blank to keep current)"
+[35mapp/src/main/java/com/ayush/aynamusic/ui/settings/CloudSyncScreen.kt[m[36m:[m                                        else "[1;31mPassword[m"
+[35mapp/src/main/java/com/ayush/aynamusic/ui/settings/CloudSyncScreen.kt[m[36m:[m                                    IconButton(onClick = { [1;31mpassword[mVisible = ![1;31mpassword[mVisible }) {
+[35mapp/src/main/java/com/ayush/aynamusic/ui/settings/CloudSyncScreen.kt[m[36m:[m                                            if ([1;31mpassword[mVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+[35mapp/src/main/java/com/ayush/aynamusic/ui/settings/CloudSyncScreen.kt[m[36m:[m                                            contentDescription = if ([1;31mpassword[mVisible) "Hide [1;31mpassword[m" else "Show [1;31mpassword[m",
+[35mapp/src/main/java/com/ayush/aynamusic/ui/settings/CloudSyncScreen.kt[m[36m:[m                                visualTransformation = if ([1;31mpassword[mVisible) {
+[35mapp/src/main/java/com/ayush/aynamusic/ui/settings/CloudSyncScreen.kt[m[36m:[m                                    [1;31mPassword[mVisualTransformation()
+[35mapp/src/main/java/com/ayush/aynamusic/ui/settings/CloudSyncScreen.kt[m[36m:[m                                    keyboardType = KeyboardType.[1;31mPassword[m,
+[35mapp/src/main/java/com/ayush/aynamusic/ui/settings/CloudSyncScreen.kt[m[36m:[m                            "Only library metadata is uploaded. Downloads and local audio stay on your device. AYNAMusic never uploads files, [1;31mpassword[ms, or listening analytics.",
+[35mapp/src/main/java/com/ayush/aynamusic/ui/settings/CloudSyncScreen.kt[m[36m:[m            text = { Text("Automatic sync will stop and the saved [1;31mpassword[m will be removed. Your remote backup file will not be deleted.") },

@@ -107,3 +107,17 @@ data class SpotifyParsedPlaylist(
     val description: String?,
     val tracks: List<SpotifyParsedTrack>
 )
+
+data class PlaylistImportState(
+    val playlistId: String,
+    val playlistName: String,
+    val current: Int,
+    val total: Int,
+    val status: String,
+    val isDone: Boolean = false
+) {
+    val progressFraction: Float
+        get() = if (total > 0) (current.toFloat() / total.toFloat()).coerceIn(0f, 1f) else 0f
+    val progressPercent: Int
+        get() = (progressFraction * 100).toInt()
+}

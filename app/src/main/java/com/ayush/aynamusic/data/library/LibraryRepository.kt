@@ -151,27 +151,29 @@ class LibraryRepository(
         CloudSyncScheduler.schedule(context)
     }
 
+    suspend fun updatePlaylistCover(id: String, coverUrl: String?) {
+        playlists.updateCover(id, coverUrl?.trim()?.takeIf { it.isNotBlank() })
+        CloudSyncScheduler.schedule(context)
+    }
+
     suspend fun deletePlaylist(id: String) {
         playlists.deletePlaylist(id)
         CloudSyncScheduler.schedule(context)
     }
 
-    suspend fun addToPlaylist(playlistId: String, track: Track): Boolean {
+    suspend fun addToPlaylist(playlistId: String, track: Track, scheduleSync: Boolean = true): Boolean {
         val playlist = playlists.get(playlistId) ?: return false
         ensureTrack(track)
         var added = false
         database.withTransaction {
-            val existingIds = playlists.getPlaylistTracks(playlistId).map { it.trackId }
-            if (track.id !in existingIds) {
-                val position = playlists.maxPosition(playlistId) + 1
-                playlists.addTrack(
-                    PlaylistTrackEntity(playlistId, track.id, position, System.currentTimeMillis())
-                )
-                playlists.update(playlist.copy(updatedAt = System.currentTimeMillis()))
-                added = true
-            }
+            val position = playlists.maxPosition(playlistId) + 1
+            playlists.addTrack(
+                PlaylistTrackEntity(playlistId, track.id, position, System.currentTimeMillis())
+            )
+            playlists.update(playlist.copy(updatedAt = System.currentTimeMillis()))
+            added = true
         }
-        if (added) CloudSyncScheduler.schedule(context)
+        if (added && scheduleSync) CloudSyncScheduler.schedule(context)
         return added
     }
 

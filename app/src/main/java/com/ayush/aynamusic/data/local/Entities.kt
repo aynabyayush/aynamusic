@@ -41,12 +41,13 @@ data class PlaylistEntity(
     val name: String,
     val description: String?,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val customCoverUrl: String? = null
 )
 
 @Entity(
     tableName = "playlist_tracks",
-    primaryKeys = ["playlistId", "trackId"],
+    primaryKeys = ["playlistId", "trackId", "position"],
     indices = [Index("trackId")],
     foreignKeys = [
         ForeignKey(
@@ -173,14 +174,19 @@ interface PlaylistDao {
         """
         SELECT p.id, p.name, p.description, p.createdAt, p.updatedAt,
             (SELECT COUNT(*) FROM playlist_tracks pt WHERE pt.playlistId = p.id) AS trackCount,
-            (SELECT t.artworkUrl FROM playlist_tracks pt
-             INNER JOIN tracks t ON t.id = pt.trackId
-             WHERE pt.playlistId = p.id ORDER BY pt.position LIMIT 1) AS coverUrl
+            COALESCE(p.customCoverUrl,
+                (SELECT t.artworkUrl FROM playlist_tracks pt
+                 INNER JOIN tracks t ON t.id = pt.trackId
+                 WHERE pt.playlistId = p.id ORDER BY pt.position LIMIT 1)
+            ) AS coverUrl
         FROM playlists p
         ORDER BY p.updatedAt DESC
         """
     )
     fun observeSummaries(): Flow<List<PlaylistSummary>>
+
+    @Query("UPDATE playlists SET customCoverUrl = :coverUrl, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateCover(id: String, coverUrl: String?, updatedAt: Long = System.currentTimeMillis())
 
     @Query("DELETE FROM playlists WHERE id = :id")
     suspend fun deletePlaylist(id: String)

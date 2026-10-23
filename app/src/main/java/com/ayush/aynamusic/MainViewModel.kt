@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
@@ -127,6 +128,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _localLoading = MutableStateFlow(false)
     val localLoading = _localLoading.asStateFlow()
+
+    private val _importStates = MutableStateFlow<Map<String, com.ayush.aynamusic.data.model.PlaylistImportState>>(emptyMap())
+    val importStates = _importStates.asStateFlow()
 
     private val _audioPermission = MutableStateFlow(container.localMusic.hasAudioPermission())
     val audioPermission = _audioPermission.asStateFlow()
@@ -892,42 +896,126 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
             onProgress("Creating playlist '${spotifyData.name}'...")
             val createdId = library.createPlaylist(spotifyData.name, spotifyData.description)
-
             val total = spotifyData.tracks.size
-            var resolvedCount = 0
 
-            onProgress("Resolving tracks (0/$total)...")
+            onComplete(createdId)
+
+            val initState = com.ayush.aynamusic.data.model.PlaylistImportState(
+                playlistId = createdId,
+                playlistName = spotifyData.name,
+                current = 0,
+                total = total,
+                status = "Starting import..."
+            )
+            _importStates.update { it + (createdId to initState) }
+
+            _toasts.tryEmit("Importing '${spotifyData.name}' ($total tracks) in background")
+
+            var resolvedCount = 0
+            val localTracks = _localTracks.value
 
             coroutineScope {
-                spotifyData.tracks.chunked(4).forEach { chunk ->
-                    val jobs = chunk.map { sTrack ->
+                spotifyData.tracks.chunked(6).forEachIndexed { chunkIndex, chunk ->
+                    val jobs = chunk.mapIndexed { itemIndex, sTrack ->
+                        val trackIndex = chunkIndex * 6 + itemIndex
                         async {
-                            val query = "${sTrack.title} ${sTrack.artist}"
-                            runCatching {
-                                container.catalog.searchFull(query, limit = 5).firstOrNull()
-                            }.getOrNull()
+                            resolveSpotifyTrack(sTrack, createdId, trackIndex, localTracks)
                         }
                     }
                     jobs.forEach { job ->
                         val resolvedTrack = job.await()
-                        if (resolvedTrack != null) {
-                            library.addToPlaylist(createdId, resolvedTrack)
-                            resolvedCount++
+                        library.addToPlaylist(createdId, resolvedTrack, scheduleSync = false)
+                        resolvedCount++
+
+                        _importStates.update { map ->
+                            val prev = map[createdId]
+                            if (prev != null) {
+                                map + (createdId to prev.copy(current = resolvedCount, status = "Importing ($resolvedCount/$total)"))
+                            } else map
                         }
                     }
                     onProgress("Resolving tracks ($resolvedCount/$total)...")
                 }
             }
 
-            _toasts.tryEmit("Imported ${spotifyData.name} ($resolvedCount of $total tracks found)")
-            onComplete(createdId)
+            _importStates.update { map ->
+                val prev = map[createdId]
+                if (prev != null) {
+                    map + (createdId to prev.copy(current = resolvedCount, total = total, status = "Completed", isDone = true))
+                } else map
+            }
+
+            CloudSyncScheduler.schedule(getApplication())
+
+            _toasts.tryEmit("Imported ${spotifyData.name} ($resolvedCount tracks added)")
+
+            delay(4000)
+            _importStates.update { it - createdId }
         }
+    }
+
+    private suspend fun resolveSpotifyTrack(
+        sTrack: com.ayush.aynamusic.data.model.SpotifyParsedTrack,
+        playlistId: String,
+        index: Int,
+        localTracks: List<Track>
+    ): Track {
+        val title = sTrack.title.trim()
+        val artist = sTrack.artist.trim()
+
+        val localMatch = localTracks.firstOrNull { l ->
+            l.title.equals(title, ignoreCase = true) &&
+                (artist.isEmpty() || l.artist.contains(artist, ignoreCase = true) || artist.contains(l.artist, ignoreCase = true))
+        }
+        if (localMatch != null) return localMatch
+
+        val cleanTitle = title
+            .replace(Regex("(?i)\\s*\\(feat\\.[^)]+\\)|\\(with[^)]+\\)|\\(remastered[^)]*\\)|\\[explicit\\]|- remastered.*"), "")
+            .trim()
+        val cleanArtist = artist
+            .replace(Regex("(?i)\\s*feat\\..*|,&.*"), "")
+            .trim()
+
+        val fullQuery = "$cleanTitle $cleanArtist".trim().ifBlank { title }
+        var onlineResult = runCatching {
+            container.catalog.searchFull(fullQuery, limit = 5).firstOrNull()
+        }.getOrNull()
+
+        if (onlineResult == null && cleanTitle.length > 2 && cleanTitle != fullQuery) {
+            onlineResult = runCatching {
+                container.catalog.searchFull(cleanTitle, limit = 5).firstOrNull()
+            }.getOrNull()
+        }
+
+        if (onlineResult != null) return onlineResult
+
+        val safeHash = Math.abs("${title}_${artist}".hashCode())
+        val encodedQuery = runCatching { java.net.URLEncoder.encode("$title $artist", "UTF-8") }.getOrDefault("$title $artist")
+
+        return Track(
+            id = "spotify_${playlistId}_${index}_$safeHash",
+            title = title,
+            artist = if (artist.isNotBlank()) artist else "Unknown Artist",
+            album = "Spotify Import",
+            durationMs = 0L,
+            source = TrackSource.SAAVN,
+            streamUrl = "https://saavn.me/search?q=$encodedQuery",
+            isFavorite = false,
+            downloadState = DownloadState.NONE
+        )
     }
 
     fun renamePlaylist(id: String, name: String) {
         viewModelScope.launch {
             library.renamePlaylist(id, name)
             _toasts.tryEmit("Playlist renamed")
+        }
+    }
+
+    fun updatePlaylistCover(id: String, coverUrl: String?) {
+        viewModelScope.launch {
+            library.updatePlaylistCover(id, coverUrl)
+            _toasts.tryEmit("Playlist cover updated")
         }
     }
 

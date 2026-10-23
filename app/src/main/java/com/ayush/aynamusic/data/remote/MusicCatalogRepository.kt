@@ -218,6 +218,7 @@ class MusicCatalogRepository(
             val isArtistValid = primaryArtist.isNotBlank() && !MusicTrackUtils.isSpamOrFalseArtist(primaryArtist, primarySeed.title)
             val isAlbumValid = !seedAlbum.isNullOrBlank() && seedAlbum.length >= 3 && seedAlbum != "Single" && seedAlbum != "Unknown Album"
             val isLangValid = !languageTag.isNullOrBlank() && languageTag.isNotBlank()
+            val genreTag = MusicTrackUtils.cleanHtml(primarySeed.genre)
 
             // Resolve YouTube Video ID for Seed Track to query YouTube's official recommendation neural net
             val youtubeVideoId = if (primarySeed.id.startsWith("piped:")) {
@@ -230,36 +231,33 @@ class MusicCatalogRepository(
 
             val queries = mutableListOf<String>()
 
-            // YouTube Music Mix & Query Strategy
+            // 1. Global & Regional Popularity Queries (Highest Priority)
+            if (isLangValid && genreTag.isNotBlank()) {
+                queries.add("$languageTag $genreTag top hits")
+                queries.add("$languageTag $genreTag global trending")
+            }
+            if (isLangValid) {
+                queries.add("$languageTag global top 50")
+                queries.add("$languageTag top songs 2024")
+                queries.add("$languageTag hits radio")
+            }
+
+            queries.add("${primarySeed.title} radio")
+            queries.add("${primarySeed.title} mix")
+
             if (isArtistValid) {
                 if (isLangValid) {
                     queries.add("$primaryArtist $languageTag hits")
-                    queries.add("$primaryArtist $languageTag radio")
                 }
                 queries.add("$primaryArtist top songs")
-                queries.add("$primaryArtist mix")
-            }
-
-            queries.add("${primarySeed.title} mix")
-            queries.add("${primarySeed.title} radio")
-
-            seedArtists.drop(1).take(2).forEach { featArtist ->
-                if (!MusicTrackUtils.isSpamOrFalseArtist(featArtist)) {
-                    queries.add("$featArtist hits")
-                }
             }
 
             if (isAlbumValid) {
                 queries.add("$seedAlbum songs")
             }
 
-            if (isLangValid) {
-                queries.add("$languageTag top songs")
-                queries.add("$languageTag hits")
-            }
-
             if (queries.isEmpty()) {
-                queries.add("${primarySeed.title} ${primarySeed.artist}")
+                queries.add("Global Top Hits 2024")
                 queries.add("Bollywood Top Hits")
             }
 
@@ -295,7 +293,6 @@ class MusicCatalogRepository(
                     pipedJobs.forEach { addAll(it.await()) }
                 }
 
-                // Filter & Score Candidates using YouTube Music Affinity Model
                 val candidatePairs = fetched.filter { track ->
                     !track.preview &&
                     !MusicTrackUtils.isSpamOrFalseArtist(track.artist, track.title) &&
@@ -305,13 +302,22 @@ class MusicCatalogRepository(
                     MusicTrackUtils.matchesGenreLanguageArtistAlbum(track, primarySeed)
                 }
                 .distinctBy { MusicTrackUtils.normalizeTitle(it.title) }
-                .map { track ->
+                .mapIndexed { index, track ->
                     var score = MusicTrackUtils.calculateAffinityScore(track, primarySeed)
-                    // YouTube Music Algorithm Boost for tracks directly returned by YouTube's /next endpoint
+                    
+                    // Popularity Rank Boost: Top global/regional chart positions get a heavy boost
+                    when (index) {
+                        in 0..2 -> score += 50
+                        in 3..7 -> score += 35
+                        in 8..14 -> score += 20
+                    }
+
+                    // YouTube Music Neural Network Boost for globally trending up-next tracks
                     val normTitle = MusicTrackUtils.normalizeTitle(track.title)
                     if (youtubeUpNextKeys.contains(normTitle)) {
                         score += 50
                     }
+
                     track to score
                 }
                 .filter { it.second > -100 }
@@ -821,7 +827,7 @@ class MusicCatalogRepository(
         val embedUrl = "https://open.spotify.com/embed/playlist/$playlistId"
         val request = Request.Builder()
             .url(embedUrl)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             .build()
 
@@ -843,10 +849,94 @@ class MusicCatalogRepository(
                 val entity = props?.optJSONObject("state")?.optJSONObject("data")?.optJSONObject("entity")
                     ?: props?.optJSONObject("entity")
 
+                val rawName = entity?.optString("name").orEmpty()
+                val name = if (rawName.isNotBlank()) MusicTrackUtils.cleanHtml(rawName) else "Spotify Playlist"
+                val description = entity?.optString("description")?.takeIf { it.isNotBlank() }?.let { MusicTrackUtils.cleanHtml(it) }
+
+                // Extract embedded session access token
+                val accessToken = props?.optJSONObject("state")
+                    ?.optJSONObject("settings")
+                    ?.optJSONObject("session")
+                    ?.optString("accessToken")
+                    ?.takeIf { it.isNotBlank() }
+
+                if (accessToken != null) {
+                    // 1. Try Pathfinder GraphQL query first (bypasses standard REST 429 quota limits)
+                    val graphQLTracks = fetchSpotifyPlaylistGraphQL(playlistId, accessToken)
+                    if (graphQLTracks.isNotEmpty()) {
+                        return@withContext SpotifyParsedPlaylist(playlistId, name, description, graphQLTracks)
+                    }
+
+                    // 2. Try REST API as secondary fallback
+                    val apiTracks = mutableListOf<SpotifyParsedTrack>()
+                    var offset = 0
+                    val limit = 100
+                    var hasMore = true
+
+                    while (hasMore && offset < 2000) {
+                        val apiUrl = "https://api.spotify.com/v1/playlists/$playlistId/tracks?limit=$limit&offset=$offset"
+                        val apiReq = Request.Builder()
+                            .url(apiUrl)
+                            .header("Authorization", "Bearer $accessToken")
+                            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                            .header("App-Platform", "WebPlayer")
+                            .build()
+
+                        val apiResp = runCatching { client.newCall(apiReq).execute() }.getOrNull()
+                        if (apiResp != null && apiResp.isSuccessful) {
+                            val bodyStr = apiResp.body?.string().orEmpty()
+                            if (bodyStr.isNotBlank()) {
+                                val apiJson = JSONObject(bodyStr)
+                                val items = apiJson.optJSONArray("items")
+                                if (items != null && items.length() > 0) {
+                                    for (i in 0 until items.length()) {
+                                        val itemObj = items.optJSONObject(i) ?: continue
+                                        val tObj = itemObj.optJSONObject("track")
+                                            ?: itemObj.optJSONObject("item")
+                                            ?: continue
+                                        val title = tObj.optString("name")
+                                            .ifBlank { tObj.optString("title") }
+                                            .let { MusicTrackUtils.cleanHtml(it) }
+
+                                        val artistsArr = tObj.optJSONArray("artists")
+                                        val artist = if (artistsArr != null && artistsArr.length() > 0) {
+                                            buildList {
+                                                for (j in 0 until artistsArr.length()) {
+                                                    val a = artistsArr.optJSONObject(j)
+                                                    val n = a?.optString("name")
+                                                    if (!n.isNullOrBlank()) add(MusicTrackUtils.cleanHtml(n))
+                                                }
+                                            }.joinToString(", ")
+                                        } else {
+                                            tObj.optString("subtitle").let { MusicTrackUtils.cleanHtml(it) }
+                                        }
+
+                                        if (title.isNotBlank()) {
+                                            apiTracks.add(SpotifyParsedTrack(title, artist.ifBlank { "Unknown Artist" }))
+                                        }
+                                    }
+                                    val total = apiJson.optInt("total", apiTracks.size)
+                                    offset += items.length()
+                                    if (offset >= total || items.length() < limit) {
+                                        hasMore = false
+                                    }
+                                } else {
+                                    hasMore = false
+                                }
+                            } else {
+                                hasMore = false
+                            }
+                        } else {
+                            hasMore = false
+                        }
+                    }
+
+                    if (apiTracks.isNotEmpty()) {
+                        return@withContext SpotifyParsedPlaylist(playlistId, name, description, apiTracks)
+                    }
+                }
+
                 if (entity != null) {
-                    val rawName = entity.optString("name")
-                    val name = if (rawName.isNotBlank()) MusicTrackUtils.cleanHtml(rawName) else "Spotify Playlist"
-                    val description = entity.optString("description").takeIf { it.isNotBlank() }?.let { MusicTrackUtils.cleanHtml(it) }
                     val trackListJson = entity.optJSONArray("trackList")
                         ?: entity.optJSONObject("tracks")?.optJSONArray("items")
 
@@ -908,6 +998,87 @@ class MusicCatalogRepository(
 
             null
         }.getOrNull()
+    }
+
+    private fun fetchSpotifyPlaylistGraphQL(playlistId: String, accessToken: String): List<SpotifyParsedTrack> {
+        val tracks = mutableListOf<SpotifyParsedTrack>()
+        var offset = 0
+        val limit = 100
+        val hashVal = "21ea11a6ac75a5f3e01fd365d29c18e0a4a8b7dc09f89bbb5d73910190c6acaf"
+
+        while (offset < 2000) {
+            val varsJson = JSONObject().apply {
+                put("uri", "spotify:playlist:$playlistId")
+                put("offset", offset)
+                put("limit", limit)
+            }.toString()
+
+            val extJson = JSONObject().apply {
+                put("persistedQuery", JSONObject().apply {
+                    put("version", 1)
+                    put("sha256Hash", hashVal)
+                })
+            }.toString()
+
+            val encodedVars = runCatching { URLEncoder.encode(varsJson, "UTF-8") }.getOrDefault(varsJson)
+            val encodedExt = runCatching { URLEncoder.encode(extJson, "UTF-8") }.getOrDefault(extJson)
+
+            val pfUrl = "https://api-partner.spotify.com/pathfinder/v1/query?operationName=fetchPlaylistContents&variables=$encodedVars&extensions=$encodedExt"
+
+            val req = Request.Builder()
+                .url(pfUrl)
+                .header("Authorization", "Bearer $accessToken")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .header("App-Platform", "WebPlayer")
+                .build()
+
+            val resp = runCatching { client.newCall(req).execute() }.getOrNull()
+            if (resp == null || !resp.isSuccessful) break
+            val body = resp.body?.string().orEmpty()
+            if (body.isBlank()) break
+
+            val json = runCatching { JSONObject(body) }.getOrNull() ?: break
+            val playlistV2 = json.optJSONObject("data")?.optJSONObject("playlistV2") ?: break
+            val content = playlistV2.optJSONObject("content") ?: break
+            val items = content.optJSONArray("items") ?: break
+            val totalCount = content.optInt("totalCount", 0)
+
+            if (items.length() == 0) break
+
+            for (i in 0 until items.length()) {
+                val itObj = items.optJSONObject(i) ?: continue
+                val itemV2Data = itObj.optJSONObject("itemV2")?.optJSONObject("data")
+                    ?: itObj.optJSONObject("itemV3")?.optJSONObject("data")
+                    ?: continue
+
+                val title = itemV2Data.optString("name")
+                    .ifBlank { itemV2Data.optString("title") }
+                    .let { MusicTrackUtils.cleanHtml(it) }
+
+                val artistsArr = itemV2Data.optJSONObject("artists")?.optJSONArray("items")
+                val artistNames = if (artistsArr != null && artistsArr.length() > 0) {
+                    buildList {
+                        for (j in 0 until artistsArr.length()) {
+                            val aObj = artistsArr.optJSONObject(j)
+                            val name = aObj?.optJSONObject("profile")?.optString("name")
+                                ?: aObj?.optString("name")
+                            if (!name.isNullOrBlank()) add(MusicTrackUtils.cleanHtml(name))
+                        }
+                    }.joinToString(", ")
+                } else {
+                    itemV2Data.optString("subtitle").let { MusicTrackUtils.cleanHtml(it) }
+                }
+
+                if (title.isNotBlank()) {
+                    tracks.add(SpotifyParsedTrack(title, artistNames.ifBlank { "Unknown Artist" }))
+                }
+            }
+
+            offset += items.length()
+            if (items.length() < limit || (totalCount in 1..offset)) break
+        }
+
+        return tracks
     }
 
     private fun getJson(url: String): JSONObject {
@@ -1096,40 +1267,67 @@ object MusicTrackUtils {
 
         var score = 0
 
+        val seedLang = detectLanguageTag(seed)?.lowercase()
+        val candLang = detectLanguageTag(candidate)?.lowercase()
+
+        val seedGenre = cleanHtml(seed.genre).lowercase().trim()
+        val candGenre = cleanHtml(candidate.genre).lowercase().trim()
+
+        val hasSameLang = seedLang != null && candLang != null && seedLang == candLang
+        val hasSameGenre = seedGenre.isNotBlank() && candGenre.isNotBlank() &&
+                (candGenre.contains(seedGenre) || seedGenre.contains(candGenre))
+
+        // 1. Language Alignment (+50 points)
+        if (hasSameLang) {
+            score += 50
+        } else if (seedLang != null && candLang != null && seedLang != candLang) {
+            score -= 70 // Heavy penalty for cross-language jump
+        } else if (seedLang != null && candidate.source == TrackSource.SAAVN) {
+            if (seedLang == "hindi" || seedLang == "punjabi" || seedLang == "bollywood") {
+                score += 25
+            }
+        }
+
+        // 2. Genre Alignment (+40 points)
+        if (hasSameGenre) {
+            score += 40
+        }
+
+        // 3. Same Genre + Same Language Synergy Bonus (+30 points)
+        if (hasSameLang && hasSameGenre) {
+            score += 30
+        }
+
+        // 4. Song Popularity & Source Quality (+40 points)
+        if (candidate.source == TrackSource.SAAVN || candidate.id.startsWith("piped:")) {
+            score += 30
+        }
+        if (!candidate.artworkUrl.isNullOrBlank()) {
+            score += 10
+        }
+
+        // 5. Artist Match (+20 points - lower priority than Genre/Language/Popularity)
         val seedArtists = extractArtists(seed.artist)
         val candArtists = extractArtists(candidate.artist)
-
         val primarySeedArtist = seedArtists.firstOrNull()?.lowercase()
         val candArtistLower = candArtists.map { it.lowercase() }
 
         if (primarySeedArtist != null && candArtistLower.contains(primarySeedArtist)) {
-            score += 40
+            score += 20
         } else if (seedArtists.any { sa -> candArtistLower.contains(sa.lowercase()) }) {
-            score += 25
+            score += 10
         }
 
+        // 6. Album / Single Match
         val seedAlbum = cleanHtml(seed.album).lowercase().trim()
         val candAlbum = cleanHtml(candidate.album).lowercase().trim()
         if (seedAlbum.length >= 3 && seedAlbum != "single" && seedAlbum != "unknown album" && candAlbum.isNotBlank()) {
             if (candAlbum == seedAlbum || candAlbum.contains(seedAlbum) || seedAlbum.contains(candAlbum)) {
-                score += 35
+                score += 25
             }
         }
 
-        val seedLang = detectLanguageTag(seed)
-        val candLang = detectLanguageTag(candidate)
-        if (seedLang != null && candLang != null) {
-            if (seedLang == candLang) {
-                score += 30
-            } else {
-                score -= 40
-            }
-        } else if (seedLang != null && candidate.source == TrackSource.SAAVN) {
-            if (seedLang == "hindi" || seedLang == "punjabi" || seedLang == "bollywood") {
-                score += 15
-            }
-        }
-
+        // 7. Era / Release Year Match (Spotify era continuity)
         val seedYear = seed.releaseYear?.toIntOrNull()
         val candYear = candidate.releaseYear?.toIntOrNull()
         if (seedYear != null && candYear != null) {
@@ -1138,18 +1336,15 @@ object MusicTrackUtils {
                 diff == 0 -> score += 15
                 diff <= 3 -> score += 10
                 diff <= 7 -> score += 5
-                diff > 20 -> score -= 10
+                diff > 20 -> score -= 15
             }
         }
 
+        // 8. Duration Check
         if (candidate.durationMs in 90_000L..480_000L) {
             score += 10
         } else if (candidate.durationMs < 60_000L || candidate.durationMs > 600_000L) {
             score -= 50
-        }
-
-        if (candidate.source == TrackSource.SAAVN) {
-            score += 10
         }
 
         return score
