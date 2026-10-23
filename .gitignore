@@ -1,0 +1,43 @@
+# Built application files
+*.apk
+*.aar
+*.aab
+*.ap_
+*.dex
+*.class
+
+# Gradle & Build outputs
+.gradle/
+/build/
+/*/build/
+.kotlin/
+
+# Android Studio / IntelliJ IDEA
+*.iml
+.idea/
+.navigation/
+/captures/
+captures/
+
+# C++ / Native build output
+.externalNativeBuild/
+.cxx/
+
+# Local configuration & Secrets
+local.properties
+secrets.properties
+*.keystore
+*.jks
+*.p8
+*.p12
+*.key
+keystore/
+
+# Profiling & Memory Dumps
+*.hprof
+*.log
+
+# OS / System generated files
+.DS_Store
+Thumbs.db
+ehthumbs.db
