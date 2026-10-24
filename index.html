@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AYNA Music — All your music. Your way.</title>
+  <meta name="description" content="An innovative, privacy-first Android music player crafted with Jetpack Compose, AndroidX Media3, and dynamic Material 3 design.">
+  <link rel="icon" type="image/svg" href="favicon.svg">
+  <link rel="apple-touch-icon"href="favicon.svg">
+  <!-- Google Fonts: Manrope & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Font Awesome 6 for Material & Media icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Manrope', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            ink: {
+              void: '#070A0E',
+              900: '#0B1017',
+              800: '#111722',
+              700: '#17212F',
+              600: '#1F2C3F',
+              500: '#2C3E57',
+              surface: 'var(--m3-surface)',
+              container: 'var(--m3-surface-container)',
+              'container-high': 'var(--m3-surface-container-high)',
+              outline: 'var(--m3-outline)',
+            },
+            citron: {
+              DEFAULT: '#D6F928',
+              hover: '#C2E41C',
+              tonal: '#242C02',
+              glow: 'rgba(214, 249, 40, 0.25)'
+            },
+            teal: {
+              DEFAULT: '#00E5BC',
+              tonal: '#003328'
+            },
+            amber: {
+              DEFAULT: '#FF7844',
+              tonal: '#3D1505'
+            }
+          },
+          borderRadius: {
+            'm3-sm': '8px',
+            'm3-md': '14px',
+            'm3-lg': '22px',
+            'm3-xl': '32px',
+            'm3-full': '9999px',
+          },
+          boxShadow: {
+            'm3-1': '0 1px 3px 1px rgba(0,0,0,0.3), 0 1px 2px 0 rgba(0,0,0,0.4)',
+            'm3-2': '0 2px 6px 2px rgba(0,0,0,0.35), 0 1px 2px 0 rgba(0,0,0,0.4)',
+            'm3-3': '0 4px 12px 3px rgba(0,0,0,0.4), 0 2px 4px 0 rgba(0,0,0,0.3)',
+            'citron-glow': '0 0 35px -5px rgba(214, 249, 40, 0.35)',
+            'teal-glow': '0 0 35px -5px rgba(0, 229, 188, 0.35)',
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    :root {
+      --m3-primary: #D6F928;
+      --m3-on-primary: #121900;
+      --m3-primary-container: #263303;
+      --m3-on-primary-container: #E4FFA8;
+      --m3-secondary: #00E5BC;
+      --m3-surface: #0B1017;
+      --m3-surface-container: #111722;
+      --m3-surface-container-high: #17212F;
+      --m3-outline: rgba(255, 255, 255, 0.08);
+      --m3-outline-focused: rgba(214, 249, 40, 0.4);
+      --m3-glow: rgba(214, 249, 40, 0.22);
+    }
+
+    [data-theme="aurora"] {
+      --m3-primary: #00E5BC;
+      --m3-on-primary: #002B22;
+      --m3-primary-container: #003D31;
+      --m3-on-primary-container: #77FCE2;
+      --m3-secondary: #38BDF8;
+      --m3-outline-focused: rgba(0, 229, 188, 0.4);
+      --m3-glow: rgba(0, 229, 188, 0.22);
+    }
+
+    [data-theme="amber"] {
+      --m3-primary: #FFA133;
+      --m3-on-primary: #2C1400;
+      --m3-primary-container: #472400;
+      --m3-on-primary-container: #FFDDBA;
+      --m3-secondary: #FF5A5F;
+      --m3-outline-focused: rgba(255, 161, 51, 0.4);
+      --m3-glow: rgba(255, 161, 51, 0.22);
+    }
+
+    [data-theme="crimson"] {
+      --m3-primary: #FF385C;
+      --m3-on-primary: #3B000C;
+      --m3-primary-container: #5E0017;
+      --m3-on-primary-container: #FFD9DC;
+      --m3-secondary: #FFA337;
+      --m3-outline-focused: rgba(255, 56, 92, 0.4);
+      --m3-glow: rgba(255, 56, 92, 0.22);
+    }
+
+    body {
+      background-color: #070A0E;
+      color: #E2E8F0;
+      font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    }
+
+    .theme-primary-bg { background-color: var(--m3-primary); }
+    .theme-primary-text { color: var(--m3-primary); }
+    .theme-primary-border { border-color: var(--m3-primary); }
+    .theme-primary-glow { box-shadow: 0 0 35px -5px var(--m3-glow); }
+    .theme-container-bg { background-color: var(--m3-primary-container); }
+    .theme-container-text { color: var(--m3-on-primary-container); }
+
+    input[type=range] {
+      -webkit-appearance: none;
+      background: transparent;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      height: 18px;
+      width: 6px;
+      border-radius: 9999px;
+      background: var(--m3-primary);
+      cursor: pointer;
+      box-shadow: 0 0 10px var(--m3-primary);
+      transition: transform 0.15s ease, height 0.15s ease;
+    }
+    input[type=range]:hover::-webkit-slider-thumb {
+      transform: scaleY(1.4);
+      height: 22px;
+    }
+
+    .bg-audiophile-grid {
+      background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+                        radial-gradient(var(--m3-glow) 1px, transparent 1px);
+      background-size: 32px 32px, 96px 96px;
+      background-position: 0 0, 16px 16px;
+    }
+
+    ::-webkit-scrollbar {
+      width: 7px;
+      height: 7px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0B1017;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1F2C3F;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--m3-primary);
+    }
+  </style>
+</head>
+
+<body class="bg-ink-void text-slate-200 antialiased selection:bg-citron selection:text-ink-void overflow-x-hidden">
+
+
+
+  <!-- App Header / Navigation -->
+  <header class="sticky top-0 z-40 backdrop-blur-xl bg-ink-void/80 border-b border-white/5 transition-all duration-200">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+
+      <!-- Brand Logo -->
+<a href="https://github.com/aynabyayush" target="_blank" rel="noopener noreferrer" class="flex items-center gap-3.5 group">
+        <div class="w-11 h-11 rounded-m3-md bg-ink-700 border border-white/10 flex items-center justify-center relative overflow-hidden group-hover:border-citron/50 transition-all duration-300">
+          <div class="absolute inset-0 bg-gradient-to-br from-citron/20 via-teal/10 to-transparent"></div>
+          <img src="favicon.svg" alt="AYNA Music Logo" class="w-9 h-9 transform group-hover:scale-110 transition-transform duration-300 object-contain">
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="text-[15px] font-mono tracking-widest px-1.5 py-0.5 rounded bg-white/5 text-slate-400 border border-white/5">AYNAMusic</span>
+          </div>
+          <p class="text-[11px] text-slate-400 font-medium">By <span class="text-white hover:text-citron underline">Ayush Narayan</span></p>
+        </div>
+      </a>
+
+      <!-- Desktop Links -->
+      <nav class="hidden md:flex items-center gap-8 text-sm font-medium text-slate-300">
+        <a href="#features" class="hover:text-white transition-colors">Architecture</a>
+        <a href="#screenshots" class="hover:text-white transition-colors flex items-center gap-1.5">
+          Screenshots
+          <span class="w-1.5 h-1.5 rounded-full theme-primary-bg"></span>
+        </a>
+      </nav>
+
+      <!-- Right Controls -->
+      <div class="flex items-center gap-3 sm:gap-4">
+        <div class="flex items-center bg-ink-800 border border-white/10 rounded-full p-1 pl-2 gap-1.5 text-xs">
+          <button onclick="setTheme('citron')" title="Electric Citron" class="w-5 h-5 rounded-full bg-[#D6F928] border-2 border-transparent hover:scale-110 active:scale-95 transition-transform" id="theme-btn-citron"></button>
+          <button onclick="setTheme('aurora')" title="Aurora Teal" class="w-5 h-5 rounded-full bg-[#00E5BC] border-2 border-transparent hover:scale-110 active:scale-95 transition-transform" id="theme-btn-aurora"></button>
+          <button onclick="setTheme('amber')" title="Solar Amber" class="w-5 h-5 rounded-full bg-[#FFA133] border-2 border-transparent hover:scale-110 active:scale-95 transition-transform" id="theme-btn-amber"></button>
+          <button onclick="setTheme('crimson')" title="Hyper Crimson" class="w-5 h-5 rounded-full bg-[#FF385C] border-2 border-transparent hover:scale-110 active:scale-95 transition-transform" id="theme-btn-crimson"></button>
+        </div>
+
+        <a href="#download" class="inline-flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-full font-semibold text-xs sm:text-sm theme-primary-bg text-ink-void hover:brightness-110 transition-all shadow-md active:scale-95">
+          <i class="fa-brands fa-android text-base"></i>
+          <span class="hidden sm:inline">Get APK</span>
+          <span class="sm:hidden">APK</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section with Full-Span Text (lg:col-span-12 and no max-w-2xl) -->
+  <section class="relative pt-12 pb-24 lg:pt-20 lg:pb-32 overflow-hidden bg-audiophile-grid">
+    <div class="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-gradient-to-tr from-citron/15 via-teal/15 to-transparent blur-[120px] pointer-events-none -z-10"></div>
+
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-8 items-center">
+
+        <!-- Hero Text spanning full width -->
+        <div class="lg:col-span-12 text-center lg:text-left">
+
+          <div class="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-ink-800/90 border border-white/10 mb-6 backdrop-blur">
+            <span class="w-2 h-2 rounded-full theme-primary-bg animate-pulse"></span>
+            <span class="text-xs font-mono font-medium text-slate-300">AYNAMusic • Official Release v1.0.0</span>
+          </div>
+
+          <h1 class="text-4xl sm:text-6xl xl:text-7xl font-extrabold tracking-tight text-white leading-[1.08] mb-6">
+            All your music.<br>
+            <span class="bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-slate-400">Your way.</span>
+            <span class="theme-primary-text block mt-1">Zero compromises.</span>
+          </h1>
+
+          <p class="text-base sm:text-lg text-slate-400 font-normal w-full mb-8 leading-relaxed">
+            Crafted for pure acoustic integrity with Google’s next-generation <strong class="text-white">AndroidX Media3</strong> framework, offline WorkManager queues, and an adaptive <strong class="text-white">Material 3</strong> interface tailored to your device palette.
+          </p>
+
+          <!-- Action buttons -->
+          <div class="flex flex-wrap items-center justify-center lg:justify-start gap-4 mb-10">
+            <a href="#download" class="inline-flex items-center justify-center gap-3 px-7 py-3.5 rounded-full font-bold text-sm theme-primary-bg text-ink-void hover:brightness-110 active:scale-95 transition-all theme-primary-glow">
+              <i class="fa-solid fa-download"></i>
+              Download APK (4 MB)
+            </a>
+
+            <a href="#screenshots" class="inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-full font-semibold text-sm bg-ink-800 hover:bg-ink-700 text-white border border-white/10 transition-all active:scale-95">
+              <i class="fa-solid fa-mobile-screen"></i>
+              Explore App UI
+            </a>
+          </div>
+
+          <!-- Feature Chips -->
+          <div class="flex flex-wrap items-center justify-center lg:justify-start gap-6 pt-4 border-t border-white/5 text-xs text-slate-400 font-mono">
+            <div class="flex items-center gap-2">
+              <i class="fa-solid fa-shield-halved text-citron"></i>
+              <span>100% Free & Tracker-less</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <i class="fa-solid fa-sliders text-teal"></i>
+              <span>32-bit Parametric Audio</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <i class="fa-solid fa-cloud-arrow-down text-amber"></i>
+              <span>Lossless Background DL</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Dedicated Screenshot Showcase with 5 Actual App Screenshots (Upload Tile Removed) -->
+  <section id="screenshots" class="py-24 bg-ink-void relative">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+      <div class="text-center max-w-3xl mx-auto mb-14">
+        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-citron/10 border border-citron/25 text-citron text-xs font-mono mb-3">
+          <i class="fa-solid fa-shapes"></i> Material You Interface Showcase
+        </div>
+        <h2 class="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">
+          Designed for your thumb. Engineered for eyes.
+        </h2>
+        <p class="text-slate-400 text-base mt-4">
+          Explore the genuine Android app screenshots below, showcasing Home, Search, Now Playing, Library, and Playlist / Import views.
+        </p>
+
+        <!-- Screenshot Tab Selector -->
+        <div class="mt-8 flex flex-wrap justify-center gap-2 p-1.5 bg-ink-800/80 border border-white/10 rounded-m3-full inline-flex">
+          <button onclick="switchScreenshotTab('home')" class="screen-tab px-4 py-2 rounded-full text-xs font-semibold theme-primary-bg text-ink-void transition" data-tab="home">
+            Home
+          </button>
+          <button onclick="switchScreenshotTab('search')" class="screen-tab px-4 py-2 rounded-full text-xs font-semibold text-slate-300 hover:text-white transition" data-tab="search">
+            Search
+          </button>
+          <button onclick="switchScreenshotTab('now-playing')" class="screen-tab px-4 py-2 rounded-full text-xs font-semibold text-slate-300 hover:text-white transition" data-tab="now-playing">
+            Now Playing
+          </button>
+          <button onclick="switchScreenshotTab('library')" class="screen-tab px-4 py-2 rounded-full text-xs font-semibold text-slate-300 hover:text-white transition" data-tab="library">
+            Library
+          </button>
+          <button onclick="switchScreenshotTab('playlist')" class="screen-tab px-4 py-2 rounded-full text-xs font-semibold text-slate-300 hover:text-white transition" data-tab="playlist">
+            Playlists & Import
+          </button>
+        </div>
+      </div>
+
+      <!-- Device Mockup Frame with Actual Screenshot Views -->
+      <div class="max-w-4xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+
+        <!-- Left: Screen Information & Bullets (Upload tile completely removed) -->
+        <div class="lg:col-span-5 order-2 lg:order-1 space-y-6">
+          <div class="bg-ink-800 p-6 rounded-m3-xl border border-white/10 space-y-4">
+            <h3 id="tab-info-title" class="text-xl font-bold text-white">Home Screen View</h3>
+            <p id="tab-info-desc" class="text-sm text-slate-400 leading-relaxed">
+              Personalized greeting ("Late night, huh?"), daily curated mixes, quick access shortcuts for Liked songs, offline tracks, and local device folders, along with top Bollywood hits.
+            </p>
+
+            <div class="space-y-2 pt-2">
+              <span class="text-xs font-mono text-slate-400 uppercase tracking-wider">Screen Details:</span>
+              <ul id="tab-info-bullets" class="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+                <li>Dynamic time-based greeting</li>
+                <li>Quick cards for Liked, Offline & On Device</li>
+                <li>Full songs from JioSaavn catalog integration</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Android 15 Device Mockup with Actual Screenshots -->
+        <div class="lg:col-span-7 order-1 lg:order-3 flex justify-center">
+          <div class="w-[310px] sm:w-[350px] h-[725px] bg-[#0E141D] rounded-[48px] p-3.5 border-4 border-slate-700/60 shadow-2xl relative shadow-citron/5 flex flex-col justify-between">
+
+            <div class="absolute -right-5 top-28 w-1 h-12 bg-slate-700 rounded-r"></div>
+            <div class="absolute -right-5 top-44 w-1 h-20 bg-slate-700 rounded-r"></div>
+
+            <div class="w-full h-full bg-[#090D12] rounded-[38px] overflow-hidden flex flex-col relative border border-white/10">
+
+                <!-- 1. Home Screen: WhatsApp Image 2026-10-24 at 02.13.58.jpeg -->
+                <div id="mock-home" class="screen-view h-full flex flex-col overflow-y-auto">
+                  <img src="Home.jpeg" alt="AYNA Home Screen" class="w-full h-auto object-cover" onerror="this.onerror=null; this.src='https://placehold.co/350x670/070A0E/D6F928?text=AYNA+Home+Screen'">
+                </div>
+
+                <!-- 2. Search Screen: WhatsApp Image 2026-10-24 at 02.13.59 (1).jpeg -->
+                <div id="mock-search" class="screen-view h-full hidden flex flex-col overflow-y-auto">
+                  <img src="search.jpeg" alt="AYNA Search Screen" class="w-full h-auto object-cover" onerror="this.onerror=null; this.src='https://placehold.co/350x670/070A0E/00E5BC?text=AYNA+Search+Screen'">
+                </div>
+
+                <!-- 3. Now Playing Screen: WhatsApp Image 2026-10-24 at 02.13.59 (2).jpeg -->
+                <div id="mock-now-playing" class="screen-view h-full hidden flex flex-col overflow-y-auto">
+                  <img src="playing.jpeg" alt="AYNA Now Playing Screen" class="w-full h-auto object-cover" onerror="this.onerror=null; this.src='https://placehold.co/350x670/070A0E/FFA133?text=AYNA+Now+Playing+Screen'">
+                </div>
+
+                <!-- 4. Library Screen: WhatsApp Image 2026-10-24 at 02.13.59.jpeg -->
+                <div id="mock-library" class="screen-view h-full hidden flex flex-col overflow-y-auto">
+                  <img src="library.jpeg" alt="AYNA Library Screen" class="w-full h-auto object-cover" onerror="this.onerror=null; this.src='https://placehold.co/350x670/070A0E/FF385C?text=AYNA+Library+Screen'">
+                </div>
+
+                <!-- 5. Playlist / Import Screen: WhatsApp Image 2026-10-24 at 02.14.00.jpeg -->
+                <div id="mock-playlist" class="screen-view h-full hidden flex flex-col overflow-y-auto">
+                  <img src="playlist.jpeg" alt="AYNA Playlist Import Screen" class="w-full h-auto object-cover" onerror="this.onerror=null; this.src='https://placehold.co/350x670/070A0E/00E5BC?text=AYNA+Playlist+Import+Screen'">
+                </div>
+
+            </div>
+
+            <div class="h-6 flex items-center justify-center flex-shrink-0 z-20">
+              <div class="w-32 h-1 bg-white/40 rounded-full"></div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Bento Material 3 Architecture & Feature Grid -->
+  <section id="features" class="py-24 bg-ink-900 border-t border-white/5 relative">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+      <div class="max-w-3xl mx-auto text-center mb-16">
+        <span class="text-xs font-mono uppercase tracking-widest text-slate-400">Android Jetpack Core</span>
+        <h2 class="text-3xl sm:text-5xl font-extrabold text-white tracking-tight mt-2">
+          Engineered without legacy bloat.
+        </h2>
+        <p class="text-slate-400 text-base mt-4">
+          Every component in AYNA Music is written in modern Kotlin using Jetpack Compose, Room DB, AndroidX Media3, and WorkManager.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-12 gap-6">
+        <div class="lg:col-span-4 bg-ink-800 rounded-m3-xl p-8 border border-white/10 hover:border-teal/40 transition-all shadow-lg flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between mb-4">
+              <div class="w-12 h-12 rounded-m3-md bg-teal/15 text-teal flex items-center justify-center text-xl">
+                <i class="fa-solid fa-cloud-arrow-down"></i>
+              </div>
+              <span class="text-xs font-mono px-3 py-1 rounded-full bg-teal/10 text-teal">WorkManager KTX</span>
+            </div>
+            <h3 class="text-xl font-bold text-white mb-2">Uninterrupted Downloads</h3>
+            <p class="text-slate-400 text-sm leading-relaxed">
+              Handles network drops, OS battery doze constraints, and foreground services without dropping your downloads.
+            </p>
+          </div>
+          <div class="mt-6 flex items-center gap-3 pt-4 border-t border-white/5">
+            <i class="fa-solid fa-shield-halved text-teal text-lg"></i>
+            <span class="text-xs text-slate-300 font-mono">Automatic retry</span>
+          </div>
+        </div>
+
+        <div class="lg:col-span-4 bg-ink-800 rounded-m3-xl p-8 border border-white/10 hover:border-amber/40 transition-all shadow-lg">
+          <div class="w-12 h-12 rounded-m3-md bg-amber/15 text-amber flex items-center justify-center text-xl mb-4">
+            <i class="fa-solid fa-database"></i>
+          </div>
+          <h3 class="text-xl font-bold text-white mb-2">Room Local Cache</h3>
+          <p class="text-slate-400 text-sm leading-relaxed mb-4">
+            Blazing fast queries for 50,000+ song libraries with SQLite FTS5 search indexing and zero lag during scrolling.
+          </p>
+          <span class="text-xs font-mono text-amber">Zero cloud dependency</span>
+        </div>
+
+        <div class="lg:col-span-4 bg-ink-800 rounded-m3-xl p-8 border border-white/10 hover:border-citron/40 transition-all shadow-lg">
+          <div class="w-12 h-12 rounded-m3-md bg-citron/15 theme-primary-text flex items-center justify-center text-xl mb-4">
+            <i class="fa-solid fa-palette"></i>
+          </div>
+          <h3 class="text-xl font-bold text-white mb-2">Dynamic Material 3</h3>
+          <p class="text-slate-400 text-sm leading-relaxed mb-4">
+            Derives tonal color schemes from your active wallpaper or current album art without jarring purple presets.
+          </p>
+          <span class="text-xs font-mono theme-primary-text">Adaptive Monet engine</span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Technical Specs & Download APK Section -->
+  <section id="download" class="py-24 bg-ink-void relative">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="bg-gradient-to-br from-ink-800 via-ink-800 to-ink-900 rounded-m3-xl border border-white/10 p-8 sm:p-12 shadow-2xl relative overflow-hidden">
+        <div class="absolute -right-20 -bottom-20 w-96 h-96 rounded-full bg-citron/10 blur-[100px] pointer-events-none"></div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center relative z-10">
+          <div class="lg:col-span-7 space-y-6">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-citron/10 text-citron font-mono text-xs border border-citron/25">
+              <i class="fa-solid fa-circle-check"></i> Clean Build • Signature Verified
+            </div>
+            <h2 class="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">
+              Ready to reclaim your audio library?
+            </h2>
+            <p class="text-slate-400 text-base leading-relaxed">
+              Download the release build of AYNAMusic today. Compatible with Android 10.0 through Android 16+.
+            </p>
+            <div class="flex flex-wrap items-center gap-4 pt-2">
+              <button class="inline-flex items-center gap-3 px-6 py-3.5 rounded-full font-bold text-sm theme-primary-bg text-ink-void hover:brightness-110 active:scale-95 transition-all shadow-lg theme-primary-glow">
+                <i class="fa-solid fa-download"></i>
+                <a href="https://github.com/aynabyayush/aynamusic/releases/tag/v1.0.0" download class="text-black hover:text-citron transition">
+                  Download APK
+                </a>
+              </button>
+              <button onclick="openShaModal()" class="inline-flex items-center gap-2 px-4 py-3.5 rounded-full font-mono text-xs text-slate-300 hover:text-white border border-white/10 hover:border-white/20 transition">
+                <i class="fa-solid fa-fingerprint text-citron"></i>
+                Verify SHA-256
+              </button>
+            </div>
+          </div>
+
+          <div class="lg:col-span-5 bg-ink-900/90 rounded-m3-lg p-6 border border-white/10 font-mono text-xs space-y-3">
+            <div class="flex items-center justify-between pb-3 border-b border-white/5">
+              <span class="text-slate-400">Package</span>
+              <span class="text-white font-bold">com.ayush.aynamusic</span>
+            </div>
+            <div class="flex items-center justify-between pb-3 border-b border-white/5">
+              <span class="text-slate-400">Version</span>
+              <span class="text-citron">1.0.0</span>
+            </div>
+            <div class="flex items-center justify-between pb-3 border-b border-white/5">
+              <span class="text-slate-400">Min Android</span>
+              <span class="text-white">Android 10.0 (API 29+)</span>
+            </div>
+            <div class="flex items-center justify-between pb-3 border-b border-white/5">
+              <span class="text-slate-400">Native ABIs</span>
+              <span class="text-slate-200">Universal</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="bg-ink-900 border-t border-white/5 py-12 text-xs font-mono text-slate-400">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-6">
+      <div class="flex items-center gap-6">
+        <a href="#screenshots" class="hover:text-white transition">Screenshots</a>
+        <a href="https://github.com/aynabyayush/aynamusic/releases" class="text-citron hover:underline">Releases</a>
+      </div>
+      <p class="text-[11px] text-slate-400">
+        <a href="https://github.com/AYNAbyAyush" class="hover:text-white transition">Designed and Developed by AYNAbyAyush (Ayush Narayan)</a>
+      </p>
+    </div>
+  </footer>
+
+  <!-- SHA-256 Verification Modal -->
+  <div id="sha-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-ink-800 border border-white/15 rounded-m3-xl max-w-lg w-full p-6 sm:p-8 space-y-5 shadow-2xl relative">
+      <div class="flex items-center justify-between border-b border-white/10 pb-4">
+        <div class="flex items-center gap-2">
+          <i class="fa-solid fa-fingerprint theme-primary-text text-xl"></i>
+          <h3 class="text-lg font-bold text-white">SHA-256 Checksum Verification</h3>
+        </div>
+        <button onclick="closeShaModal()" class="w-8 h-8 rounded-full bg-ink-700 text-slate-400 hover:text-white flex items-center justify-center">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <p class="text-xs text-slate-300">
+        Ensure your downloaded APK has not been tampered with by verifying its hash against the build signature:
+      </p>
+      <div class="p-3 bg-ink-900 rounded-xl border border-white/5 space-y-1">
+        <span class="text-[10px] text-slate-400 font-mono">OFFICIAL SHA-256 FOR v1.0.0:</span>
+        <p class="text-xs font-mono text-citron break-all select-all font-semibold" id="official-hash">
+          B9:58:F5:21:95:86:66:D1:8A:6E:47:68:D9:D3:EB:24:A8:49:E7:33:5A:4E:F4:32:BA:F6:78:13:13:97:2D:96
+        </p>
+      </div>
+      <div class="space-y-2">
+        <label for="hash-input" class="text-xs font-mono text-slate-300">Compare with your file hash:</label>
+        <input type="text" id="hash-input" placeholder="Paste generated SHA-256 here..." oninput="verifyHash()" class="w-full bg-ink-900 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-mono text-white focus:outline-none focus:border-citron">
+        <div id="hash-match-status" class="text-xs font-mono"></div>
+      </div>
+      <div class="flex justify-end pt-2">
+        <button onclick="copyOfficialHash()" class="px-4 py-2 rounded-full theme-primary-bg text-ink-void font-bold text-xs">
+          Copy Official Hash
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Queue Drawer Modal -->
+  <div id="queue-modal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-ink-800 border border-white/15 rounded-t-3xl sm:rounded-m3-xl max-w-md w-full p-6 space-y-4 shadow-2xl relative max-h-[85vh] flex flex-col">
+      <div class="flex items-center justify-between border-b border-white/10 pb-3">
+        <div class="flex items-center gap-2">
+          <i class="fa-solid fa-list-ul text-citron"></i>
+          <h3 class="text-base font-bold text-white">Up Next in Queue</h3>
+        </div>
+        <button onclick="toggleQueueModal()" class="w-7 h-7 rounded-full bg-ink-700 text-slate-400 hover:text-white flex items-center justify-center">
+          <i class="fa-solid fa-xmark text-xs"></i>
+        </button>
+      </div>
+      <div class="overflow-y-auto space-y-2 text-xs flex-1 pr-1" id="queue-list-container">
+        <div class="p-2.5 rounded-xl bg-citron/10 border border-citron/30 flex items-center justify-between">
+          <div class="flex items-center gap-2.5 truncate">
+            <span class="w-2 h-2 rounded-full theme-primary-bg"></span>
+            <div class="truncate">
+              <p class="font-bold text-white truncate">Astronomia (Now Playing)</p>
+              <p class="text-[10px] text-slate-400">Vicetone & Tony Igy</p>
+            </div>
+          </div>
+          <span class="text-citron font-mono text-[10px]">03:18</span>
+        </div>
+        <div class="p-2.5 rounded-xl bg-ink-700/50 flex items-center justify-between">
+          <div class="truncate">
+            <p class="font-medium text-slate-200 truncate">Velvet Synthetics</p>
+            <p class="text-[10px] text-slate-400">Ayush Resonance</p>
+          </div>
+          <span class="text-slate-400 font-mono text-[10px]">04:12</span>
+        </div>
+        <div class="p-2.5 rounded-xl bg-ink-700/50 flex items-center justify-between">
+          <div class="truncate">
+            <p class="font-medium text-slate-200 truncate">Sub-Bass Atmospheric 40Hz</p>
+            <p class="text-[10px] text-slate-400">Kavinsky & AYNA</p>
+          </div>
+          <span class="text-slate-400 font-mono text-[10px]">05:08</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast / Snackbar -->
+  <div id="m3-toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-ink-800 text-white px-5 py-3 rounded-full border border-white/15 shadow-2xl flex items-center gap-3 text-xs font-mono transition-all duration-300 transform translate-y-24 opacity-0 pointer-events-none">
+    <i id="toast-icon" class="fa-solid fa-circle-check text-citron text-sm"></i>
+    <span id="toast-msg">Operation completed</span>
+  </div>
+
+  <!-- JavaScript -->
+  <script>
+    let audioCtx = null;
+    let isPlaying = false;
+    let oscillator = null;
+    let gainNode = null;
+    let playbackSpeed = 1.0;
+    let totalTimeSec = 198;
+    let isShuffle = false;
+    let isRepeat = true;
+
+    function showToast(message, isError = false) {
+      const toast = document.getElementById('m3-toast');
+      const msg = document.getElementById('toast-msg');
+      const icon = document.getElementById('toast-icon');
+
+      msg.textContent = message;
+      if (isError) {
+        icon.className = 'fa-solid fa-circle-exclamation text-rose-400 text-sm';
+      } else {
+        icon.className = 'fa-solid fa-circle-check text-citron text-sm';
+      }
+
+      toast.classList.remove('translate-y-24', 'opacity-0');
+      toast.classList.add('translate-y-0', 'opacity-100');
+
+      setTimeout(() => {
+        toast.classList.remove('translate-y-0', 'opacity-100');
+        toast.classList.add('translate-y-24', 'opacity-0');
+      }, 3200);
+    }
+
+    function setTheme(theme) {
+      const root = document.documentElement;
+      if (theme === 'citron') {
+        root.removeAttribute('data-theme');
+      } else {
+        root.setAttribute('data-theme', theme);
+      }
+
+      ['citron', 'aurora', 'amber', 'crimson'].forEach(t => {
+        const btn = document.getElementById(`theme-btn-${t}`);
+        if (btn) {
+          if (t === theme) {
+            btn.classList.add('ring-2', 'ring-white', 'scale-110');
+          } else {
+            btn.classList.remove('ring-2', 'ring-white', 'scale-110');
+          }
+        }
+      });
+
+      showToast(`Dynamic Palette switched to: ${theme.toUpperCase()}`);
+    }
+
+    function initAudio() {
+      if (!audioCtx) {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContext();
+      }
+    }
+
+    function toggleAudio() {
+      initAudio();
+      const mainIcon = document.getElementById('main-play-icon');
+
+      if (!isPlaying) {
+        try {
+          if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+          }
+
+          oscillator = audioCtx.createOscillator();
+          const lfo = audioCtx.createOscillator();
+          const lfoGain = audioCtx.createGain();
+          gainNode = audioCtx.createGain();
+
+          oscillator.type = 'triangle';
+          oscillator.frequency.setValueAtTime(220 * playbackSpeed, audioCtx.currentTime);
+
+          lfo.type = 'sine';
+          lfo.frequency.setValueAtTime(3 * playbackSpeed, audioCtx.currentTime);
+          lfoGain.gain.setValueAtTime(15, audioCtx.currentTime);
+          lfo.connect(oscillator.frequency);
+
+          gainNode.gain.setValueAtTime(0.08, audioCtx.currentTime);
+
+          oscillator.connect(gainNode);
+          gainNode.connect(audioCtx.destination);
+
+          oscillator.start();
+          lfo.start();
+
+          isPlaying = true;
+          mainIcon.className = 'fa-solid fa-pause';
+          showToast(`Playing with Media3 (${playbackSpeed}x)`);
+        } catch (e) {
+          console.error(e);
+        }
+      } else {
+        stopAudio();
+      }
+    }
+
+    function stopAudio() {
+      if (oscillator) {
+        try {
+          oscillator.stop();
+          oscillator.disconnect();
+        } catch (e) {}
+      }
+      isPlaying = false;
+      document.getElementById('main-play-icon').className = 'fa-solid fa-play ml-1';
+      showToast('Audio paused');
+    }
+
+    function setSpeed(speed) {
+      playbackSpeed = speed;
+      if (oscillator && isPlaying && audioCtx) {
+        oscillator.frequency.setValueAtTime(220 * playbackSpeed, audioCtx.currentTime);
+      }
+
+      document.querySelectorAll('.speed-pill').forEach(btn => {
+        if (parseFloat(btn.getAttribute('data-speed')) === speed) {
+          btn.className = 'speed-pill px-2.5 py-1 rounded-full text-xs font-mono theme-primary-bg text-ink-void font-bold transition';
+        } else {
+          btn.className = 'speed-pill px-2.5 py-1 rounded-full text-xs font-mono bg-ink-700 text-slate-300 hover:text-white transition';
+        }
+      });
+
+      showToast(`Playback Speed changed to ${speed}x`);
+    }
+
+    // Tab Details for the 5 Actual App Screenshots
+    const tabDetails = {
+      'home': {
+        title: 'Home Screen View',
+        desc: 'Personalized greeting ("Late night, huh?"), daily curated mixes, quick access shortcuts for Liked songs, offline tracks, and local device folders, along with top Bollywood hits.',
+        bullets: [
+          'Dynamic time-based greeting',
+          'Quick cards for Liked, Offline & On Device',
+          'Full songs from JioSaavn catalog integration'
+        ]
+      },
+      'search': {
+        title: 'Search View',
+        desc: 'Explore the whole world, one query away. Browse songs, artists, albums, and explore curated sound genres like Bollywood, Lo-Fi, Pop, Hip-Hop, Electronic, and Jazz.',
+        bullets: [
+          'Instant search across multiple audio libraries',
+          'Browse by sound genres (Bollywood, Lo-Fi, Pop, etc.)',
+          'Full-length complete tracks from JioSaavn, Audius, and Jamendo'
+        ]
+      },
+      'now-playing': {
+        title: 'Now Playing View',
+        desc: 'Expansive album art presentation (e.g. Astronomia by Vicetone & Tony Igy) with real-time waveform dynamics, lyrics, timer, queue, and EQ controls.',
+        bullets: [
+          'High-res album art display with audio source badges',
+          'Precise scrubbing with waveform progress bar',
+          'Quick access to Timer, Speed, Lyrics, Queue, and EQ'
+        ]
+      },
+      'library': {
+        title: 'Your Library View',
+        desc: 'Manage your saved playlists, liked tracks, offline downloads, and local device files with zero clutter and instant search.',
+        bullets: [
+          'Organized tabs for Playlists, Liked, Offline, and Local',
+          'Quick playlist creation and Spotify import support',
+          'Local SQLite FTS5 index for instant track access'
+        ]
+      },
+      'playlist': {
+        title: 'Playlists & Spotify Import View',
+        desc: 'Easily import public Spotify playlists or start new playlists from scratch to collect full tracks, previews, and local files.',
+        bullets: [
+          'Import public Spotify playlist links seamlessly',
+          'Custom playlist creation with rich metadata',
+          'Offline caching for downloaded playlist tracks'
+        ]
+      }
+    };
+
+    function switchScreenshotTab(tabKey) {
+      document.querySelectorAll('.screen-tab').forEach(btn => {
+        if (btn.getAttribute('data-tab') === tabKey) {
+          btn.className = 'screen-tab px-4 py-2 rounded-full text-xs font-semibold theme-primary-bg text-ink-void transition';
+        } else {
+          btn.className = 'screen-tab px-4 py-2 rounded-full text-xs font-semibold text-slate-300 hover:text-white transition';
+        }
+      });
+
+      const info = tabDetails[tabKey];
+      if (info) {
+        document.getElementById('tab-info-title').textContent = info.title;
+        document.getElementById('tab-info-desc').textContent = info.desc;
+        const bulletsUl = document.getElementById('tab-info-bullets');
+        bulletsUl.innerHTML = info.bullets.map(b => `<li>${b}</li>`).join('');
+      }
+
+      document.querySelectorAll('.screen-view').forEach(view => view.classList.add('hidden'));
+
+      const targetView = document.getElementById(`mock-${tabKey}`);
+      if (targetView) targetView.classList.remove('hidden');
+    }
+
+    function openShaModal() {
+      document.getElementById('sha-modal').classList.remove('hidden');
+      document.getElementById('sha-modal').classList.add('flex');
+    }
+
+    function closeShaModal() {
+      document.getElementById('sha-modal').classList.add('hidden');
+      document.getElementById('sha-modal').classList.remove('flex');
+    }
+
+    function toggleQueueModal() {
+      const q = document.getElementById('queue-modal');
+      if (q.classList.contains('hidden')) {
+        q.classList.remove('hidden');
+        q.classList.add('flex');
+      } else {
+        q.classList.add('hidden');
+        q.classList.remove('flex');
+      }
+    }
+
+    function copyOfficialHash() {
+      const hash = document.getElementById('official-hash').innerText.trim();
+      const tempInput = document.createElement("input");
+      tempInput.value = hash;
+      document.body.appendChild(tempInput);
+      tempInput.select();
+      document.execCommand("copy");
+      document.body.removeChild(tempInput);
+      showToast('Official SHA-256 copied to clipboard!');
+    }
+
+    function verifyHash() {
+      const official = document.getElementById('official-hash').innerText.trim().toLowerCase();
+      const input = document.getElementById('hash-input').value.trim().toLowerCase();
+      const statusDiv = document.getElementById('hash-match-status');
+
+      if (!input) {
+        statusDiv.innerHTML = '';
+        return;
+      }
+
+      if (input === official) {
+        statusDiv.innerHTML = '<span class="text-citron font-bold"><i class="fa-solid fa-circle-check mr-1"></i> Perfect match! Original authentic APK package.</span>';
+      } else {
+        statusDiv.innerHTML = '<span class="text-rose-400 font-bold"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Hash mismatch! Verification failed.</span>';
+      }
+    }
+
+
+    function toggleShuffle() {
+      isShuffle = !isShuffle;
+      const btn = document.getElementById('shuffle-btn');
+      if (isShuffle) {
+        btn.classList.add('theme-primary-text', 'bg-citron/15');
+        showToast('Shuffle Mode: ON');
+      } else {
+        btn.classList.remove('theme-primary-text', 'bg-citron/15');
+        showToast('Shuffle Mode: OFF');
+      }
+    }
+
+    function toggleRepeat() {
+      isRepeat = !isRepeat;
+      const btn = document.getElementById('repeat-btn');
+      if (isRepeat) {
+        btn.classList.add('theme-primary-text', 'bg-citron/15');
+        showToast('Repeat Mode: Loop All');
+      } else {
+        btn.classList.remove('theme-primary-text', 'bg-citron/15');
+        showToast('Repeat Mode: OFF');
+      }
+    }
+
+    function prevTrack() {
+      showToast('Media3: Skipping to previous track');
+    }
+
+    function nextTrack() {
+      showToast('Media3: Playing next item in queue');
+    }
+
+    window.onload = function () {
+      const slider = document.getElementById('seek-slider');
+      if (slider) {
+        slider.addEventListener('input', function(e) {
+          const val = e.target.value;
+          const cur = Math.floor((val / 100) * totalTimeSec);
+          const m = Math.floor(cur / 60);
+          const s = cur % 60;
+          document.getElementById('current-time').textContent = `0${m}:${s < 10 ? '0' : ''}${s}`;
+        });
+      }
+    };
+  </script>
+</body>
+</html>
