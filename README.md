@@ -79,7 +79,7 @@ com.ayush.aynamusic/
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/your-username/AYNAMusic.git
+   git clone https://github.com/AYNAbyAyush/AYNAMusic.git
    cd AYNAMusic
    ```
 
