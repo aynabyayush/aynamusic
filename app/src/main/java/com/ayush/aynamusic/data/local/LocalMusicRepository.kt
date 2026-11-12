@@ -32,7 +32,9 @@ class LocalMusicRepository(private val context: Context) {
             MediaStore.Audio.Media.ALBUM,
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.DISPLAY_NAME,
-            MediaStore.Audio.Media.YEAR
+            MediaStore.Audio.Media.YEAR,
+            MediaStore.Audio.Media.DATE_ADDED,
+            MediaStore.Audio.Media.DATE_MODIFIED
         )
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND " +
             "${MediaStore.Audio.Media.DURATION} >= 15000"
@@ -47,6 +49,8 @@ class LocalMusicRepository(private val context: Context) {
                 val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
                 val displayCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
                 val yearCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.YEAR)
+                val dateAddedCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
+                val dateModifiedCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
                 while (cursor.moveToNext() && tracks.size < 20_000) {
                     val id = cursor.getLong(idCol)
                     val title = cursor.getString(titleCol)
@@ -59,6 +63,13 @@ class LocalMusicRepository(private val context: Context) {
                         ?.takeUnless { it.isBlank() || it == "<unknown>" }
                     val duration = cursor.getLong(durationCol)
                     if (duration <= 0) continue
+                    val dateAddedSec = cursor.getLong(dateAddedCol)
+                    val dateModSec = cursor.getLong(dateModifiedCol)
+                    val dateAddedMs = when {
+                        dateAddedSec > 0 -> dateAddedSec * 1000L
+                        dateModSec > 0 -> dateModSec * 1000L
+                        else -> System.currentTimeMillis()
+                    }
                     val uri = ContentUris.withAppendedId(collection, id)
                     tracks += Track(
                         id = "local:$id",
@@ -70,7 +81,8 @@ class LocalMusicRepository(private val context: Context) {
                         source = TrackSource.LOCAL,
                         streamUrl = uri.toString(),
                         preview = false,
-                        releaseYear = cursor.getString(yearCol)?.takeIf { it.length >= 4 }?.take(4)
+                        releaseYear = cursor.getString(yearCol)?.takeIf { it.length >= 4 }?.take(4),
+                        dateAddedMs = dateAddedMs
                     )
                 }
             }

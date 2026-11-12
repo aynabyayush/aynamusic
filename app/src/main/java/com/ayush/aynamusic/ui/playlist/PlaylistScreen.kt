@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.ayush.aynamusic.ui.components.FastScroller
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -194,121 +196,135 @@ fun PlaylistScreen(
             }
         )
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 36.dp)
-        ) {
-            item {
-                PlaylistHero(
-                    playlist = playlist,
-                    tracks = decorated,
-                    searchQuery = searchQuery,
-                    onQueryChange = { searchQuery = it },
-                    isSearchExpanded = isSearchExpanded,
-                    onToggleSearch = { expanded ->
-                        isSearchExpanded = expanded
-                        if (!expanded) searchQuery = ""
-                    },
-                    onPlay = {
-                        if (filteredTracks.isNotEmpty()) onPlayTracks(filteredTracks, 0)
-                    },
-                    onShuffle = { if (filteredTracks.isNotEmpty()) onShuffleTracks(filteredTracks) },
-                    onAddSongs = onAddSongs,
-                    onEditCover = { showEditCover = true }
-                )
-            }
+        val listState = rememberLazyListState()
 
-            if (importState != null && !importState.isDone) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+        ) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 36.dp)
+            ) {
                 item {
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 8.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                    ) {
-                        Column(
-                            Modifier.padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                    PlaylistHero(
+                        playlist = playlist,
+                        tracks = decorated,
+                        searchQuery = searchQuery,
+                        onQueryChange = { searchQuery = it },
+                        isSearchExpanded = isSearchExpanded,
+                        onToggleSearch = { expanded ->
+                            isSearchExpanded = expanded
+                            if (!expanded) searchQuery = ""
+                        },
+                        onPlay = {
+                            if (filteredTracks.isNotEmpty()) onPlayTracks(filteredTracks, 0)
+                        },
+                        onShuffle = { if (filteredTracks.isNotEmpty()) onShuffleTracks(filteredTracks) },
+                        onAddSongs = onAddSongs,
+                        onEditCover = { showEditCover = true }
+                    )
+                }
+
+                if (importState != null && !importState.isDone) {
+                    item {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            Column(
+                                Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Text(
-                                    "Importing tracks in background...",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                                Spacer(Modifier.weight(1f))
-                                Text(
-                                    "${importState.current}/${importState.total}",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        "Importing tracks in background...",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    Spacer(Modifier.weight(1f))
+                                    Text(
+                                        "${importState.current}/${importState.total}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                LinearProgressIndicator(
+                                    progress = { importState.progressFraction },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(4.dp)
+                                        .clip(CircleShape),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
                                 )
                             }
-                            LinearProgressIndicator(
-                                progress = { importState.progressFraction },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(4.dp)
-                                    .clip(CircleShape),
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                            )
+                        }
+                    }
+                }
+
+                if (decorated.isEmpty()) {
+                    item {
+                        EmptyState(
+                            title = "This playlist is empty",
+                            message = "Add full tracks, Apple Music previews or files from your phone.",
+                            icon = Icons.Rounded.PlaylistAdd,
+                            actionLabel = "Add songs",
+                            action = onAddSongs
+                        )
+                    }
+                } else if (filteredTracks.isEmpty()) {
+                    item {
+                        EmptyState(
+                            title = "No matching songs",
+                            message = "No tracks in playlist match “$cleanQuery”.",
+                            icon = Icons.Rounded.Search
+                        )
+                    }
+                } else {
+                    itemsIndexed(
+                        filteredTracks,
+                        key = { _, track -> "${playlist.id}-${track.id}" }
+                    ) { index, track ->
+                        TrackRow(
+                            track = track,
+                            isCurrent = track.id == currentTrackId,
+                            isPlaying = isPlaying,
+                            onClick = { onPlayTracks(filteredTracks, index) },
+                            onMore = { onTrackMore(track, playlist.id) }
+                        )
+                    }
+                    item {
+                        TextButton(
+                            onClick = onAddSongs,
+                            modifier = Modifier.padding(start = 14.dp, top = 8.dp)
+                        ) {
+                            Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Add more songs")
                         }
                     }
                 }
             }
 
-            if (decorated.isEmpty()) {
-                item {
-                    EmptyState(
-                        title = "This playlist is empty",
-                        message = "Add full tracks, Apple Music previews or files from your phone.",
-                        icon = Icons.Rounded.PlaylistAdd,
-                        actionLabel = "Add songs",
-                        action = onAddSongs
-                    )
-                }
-            } else if (filteredTracks.isEmpty()) {
-                item {
-                    EmptyState(
-                        title = "No matching songs",
-                        message = "No tracks in playlist match “$cleanQuery”.",
-                        icon = Icons.Rounded.Search
-                    )
-                }
-            } else {
-                itemsIndexed(
-                    filteredTracks,
-                    key = { _, track -> "${playlist.id}-${track.id}" }
-                ) { index, track ->
-                    TrackRow(
-                        track = track,
-                        isCurrent = track.id == currentTrackId,
-                        isPlaying = isPlaying,
-                        onClick = { onPlayTracks(filteredTracks, index) },
-                        onMore = { onTrackMore(track, playlist.id) }
-                    )
-                }
-                item {
-                    TextButton(
-                        onClick = onAddSongs,
-                        modifier = Modifier.padding(start = 14.dp, top = 8.dp)
-                    ) {
-                        Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Add more songs")
-                    }
-                }
-            }
+            FastScroller(
+                listState = listState,
+                modifier = Modifier.align(Alignment.CenterEnd)
+            )
         }
     }
 

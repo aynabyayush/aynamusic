@@ -22,7 +22,8 @@ data class Track(
     val releaseYear: String? = null,
     val isFavorite: Boolean = false,
     val downloadState: DownloadState = DownloadState.NONE,
-    val localFilePath: String? = null
+    val localFilePath: String? = null,
+    val dateAddedMs: Long = System.currentTimeMillis()
 ) {
     val isLocal: Boolean get() = source == TrackSource.LOCAL
     val isDownloaded: Boolean get() = downloadState == DownloadState.DOWNLOADED
@@ -121,3 +122,17 @@ data class PlaylistImportState(
     val progressPercent: Int
         get() = (progressFraction * 100).toInt()
 }
+
+data class UserInterestProfile(
+    val topArtists: Map<String, Double> = emptyMap(),
+    val topGenres: Map<String, Double> = emptyMap(),
+    val topLanguages: Map<String, Double> = emptyMap(),
+    val minedPlaylistArtists: Map<String, Double> = emptyMap(),
+    val minedPlaylistGenres: Map<String, Double> = emptyMap(),
+    val minedPlaylistTrackIds: Set<String> = emptySet(),
+    val highAffinityTrackIds: Set<String> = emptySet(),
+    val skippedTrackIds: Set<String> = emptySet(),
+    val avgCompletionRatio: Double = 0.0,
+    val nicheRatio: Double = 0.0,
+    val totalTrackedSongs: Int = 0
+)

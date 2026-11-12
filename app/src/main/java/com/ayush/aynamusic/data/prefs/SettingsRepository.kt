@@ -14,6 +14,9 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
+import org.json.JSONObject
+import com.ayush.aynamusic.data.model.Track
+import com.ayush.aynamusic.data.model.TrackSource
 
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "ayna_settings"
@@ -42,9 +45,34 @@ data class AppSettings(
     val lastSyncOk: Boolean = false,
     val lastSyncMessage: String = "",
     val recentSearches: List<String> = emptyList(),
-    val localScanVersion: Long = 0L
+    val localScanVersion: Long = 0L,
+    val playlistSortField: String = "DATE_UPDATED",
+    val trackSortField: String = "DATE_ADDED",
+    val sortDirection: String = "DESCENDING",
+    val heroTrackJson: String = ""
 ) {
     val cloudConfigured: Boolean get() = cloudUrl.isNotBlank()
+
+    fun getHeroTrack(): Track? {
+        if (heroTrackJson.isBlank()) return null
+        return runCatching {
+            val json = JSONObject(heroTrackJson)
+            Track(
+                id = json.getString("id"),
+                title = json.getString("title"),
+                artist = json.getString("artist"),
+                album = json.optString("album").takeIf { it.isNotBlank() },
+                artworkUrl = json.optString("artworkUrl").takeIf { it.isNotBlank() },
+                durationMs = json.optLong("durationMs", 0L),
+                source = runCatching { TrackSource.valueOf(json.getString("source")) }.getOrDefault(TrackSource.AUDIUS),
+                streamUrl = json.getString("streamUrl"),
+                externalUrl = json.optString("externalUrl").takeIf { it.isNotBlank() },
+                preview = json.optBoolean("preview", false),
+                genre = json.optString("genre").takeIf { it.isNotBlank() },
+                releaseYear = json.optString("releaseYear").takeIf { it.isNotBlank() }
+            )
+        }.getOrNull()
+    }
 }
 
 class SettingsRepository(private val context: Context) {
@@ -64,6 +92,10 @@ class SettingsRepository(private val context: Context) {
         val lastSyncMessage = stringPreferencesKey("last_sync_message")
         val recentSearches = stringPreferencesKey("recent_searches")
         val localScanVersion = longPreferencesKey("local_scan_version")
+        val playlistSortField = stringPreferencesKey("playlist_sort_field")
+        val trackSortField = stringPreferencesKey("track_sort_field")
+        val sortDirection = stringPreferencesKey("sort_direction")
+        val heroTrackJson = stringPreferencesKey("hero_track_json")
     }
 
     val settings: Flow<AppSettings> = context.settingsDataStore.data
@@ -86,7 +118,11 @@ class SettingsRepository(private val context: Context) {
                 lastSyncOk = prefs[Keys.lastSyncOk] ?: false,
                 lastSyncMessage = prefs[Keys.lastSyncMessage] ?: "",
                 recentSearches = parseSearches(prefs[Keys.recentSearches]),
-                localScanVersion = prefs[Keys.localScanVersion] ?: 0L
+                localScanVersion = prefs[Keys.localScanVersion] ?: 0L,
+                playlistSortField = prefs[Keys.playlistSortField] ?: "DATE_UPDATED",
+                trackSortField = prefs[Keys.trackSortField] ?: "DATE_ADDED",
+                sortDirection = prefs[Keys.sortDirection] ?: "DESCENDING",
+                heroTrackJson = prefs[Keys.heroTrackJson] ?: ""
             )
         }
 
@@ -122,6 +158,37 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setRegion(region: String) {
         context.settingsDataStore.edit { it[Keys.region] = region }
+    }
+
+    suspend fun setSortSettings(playlistField: String, trackField: String, direction: String) {
+        context.settingsDataStore.edit {
+            it[Keys.playlistSortField] = playlistField
+            it[Keys.trackSortField] = trackField
+            it[Keys.sortDirection] = direction
+        }
+    }
+
+    suspend fun setHeroTrack(track: Track?) {
+        context.settingsDataStore.edit { prefs ->
+            if (track == null) {
+                prefs.remove(Keys.heroTrackJson)
+            } else {
+                val json = JSONObject()
+                json.put("id", track.id)
+                json.put("title", track.title)
+                json.put("artist", track.artist)
+                json.put("album", track.album ?: "")
+                json.put("artworkUrl", track.artworkUrl ?: "")
+                json.put("durationMs", track.durationMs)
+                json.put("source", track.source.name)
+                json.put("streamUrl", track.streamUrl)
+                json.put("externalUrl", track.externalUrl ?: "")
+                json.put("preview", track.preview)
+                json.put("genre", track.genre ?: "")
+                json.put("releaseYear", track.releaseYear ?: "")
+                prefs[Keys.heroTrackJson] = json.toString()
+            }
+        }
     }
 
     suspend fun saveCloudConfig(url: String, user: String) {

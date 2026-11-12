@@ -26,10 +26,12 @@ import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Headphones
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -40,17 +42,25 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.ayush.aynamusic.data.model.HomeFeed
 import com.ayush.aynamusic.data.model.Track
 import com.ayush.aynamusic.data.model.UserTrackState
@@ -69,6 +79,7 @@ import java.util.Calendar
 @Composable
 fun HomeScreen(
     home: HomeFeed?,
+    heroTrack: Track? = null,
     homeLoading: Boolean,
     homeError: String?,
     recent: List<Track>,
@@ -91,10 +102,12 @@ fun HomeScreen(
     onTrackMore: (Track) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var showChangelogDialog by remember { mutableStateOf(false) }
+
     BoxWithConstraints(modifier.fillMaxSize()) {
         val cardWidth: Dp = when {
-            maxWidth >= 840.dp -> 196.dp
-            maxWidth >= 600.dp -> 174.dp
+            this.maxWidth >= 840.dp -> 196.dp
+            this.maxWidth >= 600.dp -> 174.dp
             else -> 150.dp
         }
         val decoratedRecent = recent.map { it.withUserState(userStates[it.id]) }
@@ -106,10 +119,12 @@ fun HomeScreen(
         }.distinctBy { it.id }
         val dailyPicks = allPicks.filter { it.isAvailableOffline() || online }.ifEmpty { allPicks }
         val greeting = when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
+            in 0..2 -> "Can't sleep??"
             in 5..11 -> "Good morning"
             in 12..16 -> "Good afternoon"
             in 17..21 -> "Good evening"
-            else -> "Late night, huh?"
+            in 21..24 -> "Late night, huh?"
+            else -> "Overthinking?"
         }
 
         LazyColumn(
@@ -123,7 +138,8 @@ fun HomeScreen(
                     greeting = greeting,
                     online = online,
                     offlineOnly = offlineOnly,
-                    onOpenSettings = onOpenSettings
+                    onOpenSettings = onOpenSettings,
+                    onOpenChangelog = { showChangelogDialog = true }
                 )
             }
             if (!online || offlineOnly) {
@@ -131,9 +147,14 @@ fun HomeScreen(
             }
             item {
                 DailyHero(
-                    enabled = dailyPicks.isNotEmpty(),
+                    heroTrack = heroTrack,
+                    enabled = heroTrack != null || dailyPicks.isNotEmpty(),
                     onPlay = {
-                        if (dailyPicks.isNotEmpty()) onShuffleTracks(dailyPicks.take(60))
+                        if (heroTrack != null) {
+                            onPlayTracks(listOf(heroTrack), 0)
+                        } else if (dailyPicks.isNotEmpty()) {
+                            onShuffleTracks(dailyPicks.take(60))
+                        }
                     }
                 )
             }
@@ -230,6 +251,10 @@ fun HomeScreen(
                 HomeFooter()
             }
         }
+
+        if (showChangelogDialog) {
+            ChangelogDialog(onDismiss = { showChangelogDialog = false })
+        }
     }
 }
 
@@ -238,7 +263,8 @@ private fun HomeHeader(
     greeting: String,
     online: Boolean,
     offlineOnly: Boolean,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onOpenChangelog: () -> Unit
 ) {
     Column(Modifier.padding(horizontal = 20.dp, vertical = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -266,6 +292,29 @@ private fun HomeHeader(
                 OfflineChip()
                 Spacer(Modifier.width(10.dp))
             }
+            Surface(
+                onClick = onOpenChangelog,
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.size(42.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Rounded.Notifications,
+                        contentDescription = "What's new in v1.0.1",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(21.dp)
+                    )
+                    Box(
+                        Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(7.dp)
+                            .size(8.dp)
+                            .background(MaterialTheme.colorScheme.primary, CircleShape)
+                    )
+                }
+            }
+            Spacer(Modifier.width(8.dp))
             Surface(
                 onClick = onOpenSettings,
                 shape = CircleShape,
@@ -298,79 +347,106 @@ private fun HomeHeader(
 }
 
 @Composable
-private fun DailyHero(enabled: Boolean, onPlay: () -> Unit) {
+private fun DailyHero(
+    heroTrack: Track?,
+    enabled: Boolean,
+    onPlay: () -> Unit
+) {
+    val artworkModel = heroTrack?.artworkRequest
+    val hasArtwork = artworkModel != null
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 18.dp)
-            .height(174.dp)
+            .height(180.dp)
             .clip(RoundedCornerShape(28.dp))
-            .background(Brush.linearGradient(listOf(Acid, Mint)))
+            .background(
+                if (heroTrack != null) SolidColor(Color(0xFF10131B))
+                else Brush.linearGradient(listOf(Acid, Mint))
+            )
     ) {
-        Box(
-            Modifier
-                .align(Alignment.TopEnd)
-                .size(170.dp)
-                .background(Color.White.copy(alpha = 0.14f), CircleShape)
-                .padding(14.dp)
-        )
+        if (hasArtwork) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                AsyncImage(
+                    model = artworkModel,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color(0xFF10131B),
+                                    Color(0xFF10131B).copy(alpha = 0.88f),
+                                    Color(0xFF10131B).copy(alpha = 0.45f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                )
+            }
+        } else {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .size(170.dp)
+                    .background(Color.White.copy(alpha = 0.14f), CircleShape)
+                    .padding(14.dp)
+            )
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 22.dp, vertical = 19.dp),
+                .padding(horizontal = 22.dp, vertical = 18.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    "MADE FOR YOU · DAILY",
+                    text = if (heroTrack != null) "Your song" else "MADE FOR YOU · DAILY",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF243000).copy(alpha = 0.7f)
+                    color = if (heroTrack != null) Mint else Color(0xFF243000).copy(alpha = 0.7f),
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
-                    "Your day,\nin sound.",
-                    style = MaterialTheme.typography.displaySmall,
-                    color = Color(0xFF111709),
-                    modifier = Modifier.padding(top = 7.dp)
+                    text = heroTrack?.title ?: "Your day,\nin sound.",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = if (heroTrack != null) Color.White else Color(0xFF111709),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 6.dp)
                 )
                 Text(
-                    "A fresh mix of full tracks and global picks.",
+                    text = heroTrack?.artist ?: "A fresh mix of full tracks and global picks.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF243000).copy(alpha = 0.68f),
+                    color = if (heroTrack != null) Color.White.copy(alpha = 0.85f) else Color(0xFF243000).copy(alpha = 0.68f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 3.dp)
+                    modifier = Modifier.padding(top = 4.dp)
                 )
             }
+
+            Spacer(Modifier.width(12.dp))
+
             Button(
                 onClick = onPlay,
                 enabled = enabled,
                 shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF0B0D10),
-                    contentColor = Acid,
+                    containerColor = if (heroTrack != null) MaterialTheme.colorScheme.primary else Color(0xFF0B0D10),
+                    contentColor = if (heroTrack != null) MaterialTheme.colorScheme.onPrimary else Acid,
                     disabledContainerColor = Color(0xFF0B0D10).copy(alpha = 0.4f),
                     disabledContentColor = Acid.copy(alpha = 0.4f)
                 ),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-                modifier = Modifier.size(56.dp)
+                modifier = Modifier.size(54.dp)
             ) {
-                Icon(Icons.Rounded.PlayArrow, contentDescription = "Play daily mix", modifier = Modifier.size(28.dp))
-            }
-        }
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 94.dp, bottom = 22.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-            verticalAlignment = Alignment.Bottom
-        ) {
-            listOf(8, 15, 22, 13, 7).forEach { h ->
-                Box(
-                    Modifier
-                        .width(3.dp)
-                        .height(h.dp)
-                        .background(Color(0xFF0B0D10).copy(alpha = 0.18f), CircleShape)
-                )
+                Icon(Icons.Rounded.PlayArrow, contentDescription = "Play song", modifier = Modifier.size(28.dp))
             }
         }
     }
@@ -516,5 +592,115 @@ private fun HomeFooter() {
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
             modifier = Modifier.padding(top = 6.dp)
         )
+    }
+}
+
+@Composable
+private fun ChangelogDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Rounded.Notifications,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Column {
+                    Text(
+                        "What's New in v1.0.1",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "Latest Updates & Improvements",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        text = {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 400.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                item {
+                    ChangelogSection(
+                        title = "Spotify 300+ Track Import",
+                        description = "Direct session Pathfinder GraphQL integration imports complete 300+ song playlists instantly without rate limit truncation"
+                    )
+                }
+                item {
+                    ChangelogSection(
+                        title = "Custom Home Card (\"Your Song\")",
+                        description = "Assign any song from the 3-dots menu directly to your Home Card"
+                    )
+                }
+                item {
+                    ChangelogSection(
+                        title = "Custom Playlist Covers",
+                        description = "Update playlist artwork by choosing photos from your phone gallery or pasting image web URLs"
+                    )
+                }
+                item {
+                    ChangelogSection(
+                        title = "Smart Auto-Queue",
+                        description = "It stores your listening data locally to analyze and enhance your music experience"
+                    )
+                }
+                item {
+                    ChangelogSection(
+                        title = "Time duration fix",
+                        description = "In search results duration of all songs was 3:00, now fixed, Shows true duration of songs"
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(50)
+            ) {
+                Text("Got it!")
+            }
+        }
+    )
+}
+
+@Composable
+private fun ChangelogSection(title: String, description: String) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
     }
 }

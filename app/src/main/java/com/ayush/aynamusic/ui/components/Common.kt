@@ -25,6 +25,13 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Album
@@ -43,6 +50,17 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.coerceIn
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.WifiOff
@@ -869,5 +887,170 @@ fun PillButton(
                 Text(text, style = MaterialTheme.typography.labelLarge)
             }
         }
+    }
+}
+
+@Composable
+fun FastScroller(
+    listState: LazyListState,
+    modifier: Modifier = Modifier
+) {
+    val totalItems = listState.layoutInfo.totalItemsCount
+    if (totalItems <= 12) return
+
+    var isDragging by remember { mutableStateOf(false) }
+    var dragOffsetRatio by remember { mutableStateOf(0f) }
+    val coroutineScope = rememberCoroutineScope()
+
+    val firstVisibleIndex = listState.firstVisibleItemIndex
+    val visibleItems = listState.layoutInfo.visibleItemsInfo.size.coerceAtLeast(1)
+    val maxScrollIndex = (totalItems - visibleItems).coerceAtLeast(1)
+
+    val realScrollRatio = (firstVisibleIndex.toFloat() / maxScrollIndex.toFloat()).coerceIn(0f, 1f)
+    val currentRatio = if (isDragging) dragOffsetRatio else realScrollRatio
+
+    val isScrolling = listState.isScrollInProgress || isDragging
+    var isVisible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isScrolling) {
+        if (isScrolling) {
+            isVisible = true
+        } else {
+            delay(1500)
+            isVisible = false
+        }
+    }
+
+    val alpha by animateFloatAsState(
+        targetValue = if (isVisible) 1f else 0f,
+        animationSpec = tween(durationMillis = 250),
+        label = "FastScrollerAlpha"
+    )
+
+    if (alpha <= 0.01f && !isDragging) return
+
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxHeight()
+            .width(28.dp)
+            .graphicsLayer { this.alpha = alpha }
+            .pointerInput(totalItems) {
+                detectVerticalDragGestures(
+                    onDragStart = { offset ->
+                        isDragging = true
+                        val ratio = (offset.y / size.height.toFloat()).coerceIn(0f, 1f)
+                        dragOffsetRatio = ratio
+                        val targetIndex = (ratio * (totalItems - 1)).toInt().coerceIn(0, totalItems - 1)
+                        coroutineScope.launch { listState.scrollToItem(targetIndex) }
+                    },
+                    onDragEnd = { isDragging = false },
+                    onDragCancel = { isDragging = false },
+                    onVerticalDrag = { change, _ ->
+                        change.consume()
+                        val ratio = (change.position.y / size.height.toFloat()).coerceIn(0f, 1f)
+                        dragOffsetRatio = ratio
+                        val targetIndex = (ratio * (totalItems - 1)).toInt().coerceIn(0, totalItems - 1)
+                        coroutineScope.launch { listState.scrollToItem(targetIndex) }
+                    }
+                )
+            },
+        contentAlignment = Alignment.TopEnd
+    ) {
+        val thumbHeight = 48.dp
+        val containerMaxHeight = this.maxHeight
+        val topOffset = (containerMaxHeight - thumbHeight) * currentRatio
+
+        Surface(
+            modifier = Modifier
+                .offset(y = topOffset.coerceIn(0.dp, containerMaxHeight - thumbHeight))
+                .padding(end = 4.dp)
+                .width(8.dp)
+                .height(thumbHeight),
+            shape = CircleShape,
+            color = if (isDragging) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            shadowElevation = if (isDragging) 4.dp else 0.dp
+        ) {}
+    }
+}
+
+@Composable
+fun FastScrollerForGrid(
+    gridState: LazyGridState,
+    modifier: Modifier = Modifier
+) {
+    val totalItems = gridState.layoutInfo.totalItemsCount
+    if (totalItems <= 12) return
+
+    var isDragging by remember { mutableStateOf(false) }
+    var dragOffsetRatio by remember { mutableStateOf(0f) }
+    val coroutineScope = rememberCoroutineScope()
+
+    val firstVisibleIndex = gridState.firstVisibleItemIndex
+    val visibleItems = gridState.layoutInfo.visibleItemsInfo.size.coerceAtLeast(1)
+    val maxScrollIndex = (totalItems - visibleItems).coerceAtLeast(1)
+
+    val realScrollRatio = (firstVisibleIndex.toFloat() / maxScrollIndex.toFloat()).coerceIn(0f, 1f)
+    val currentRatio = if (isDragging) dragOffsetRatio else realScrollRatio
+
+    val isScrolling = gridState.isScrollInProgress || isDragging
+    var isVisible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isScrolling) {
+        if (isScrolling) {
+            isVisible = true
+        } else {
+            delay(1500)
+            isVisible = false
+        }
+    }
+
+    val alpha by animateFloatAsState(
+        targetValue = if (isVisible) 1f else 0f,
+        animationSpec = tween(durationMillis = 250),
+        label = "FastScrollerGridAlpha"
+    )
+
+    if (alpha <= 0.01f && !isDragging) return
+
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxHeight()
+            .width(48.dp)
+            .graphicsLayer { this.alpha = alpha }
+            .pointerInput(totalItems) {
+                detectVerticalDragGestures(
+                    onDragStart = { offset ->
+                        isDragging = true
+                        val ratio = (offset.y / size.height.toFloat()).coerceIn(0f, 1f)
+                        dragOffsetRatio = ratio
+                        val targetIndex = (ratio * (totalItems - 1)).toInt().coerceIn(0, totalItems - 1)
+                        coroutineScope.launch { gridState.scrollToItem(targetIndex) }
+                    },
+                    onDragEnd = { isDragging = false },
+                    onDragCancel = { isDragging = false },
+                    onVerticalDrag = { change, _ ->
+                        change.consume()
+                        val ratio = (change.position.y / size.height.toFloat()).coerceIn(0f, 1f)
+                        dragOffsetRatio = ratio
+                        val targetIndex = (ratio * (totalItems - 1)).toInt().coerceIn(0, totalItems - 1)
+                        coroutineScope.launch { gridState.scrollToItem(targetIndex) }
+                    }
+                )
+            },
+        contentAlignment = Alignment.TopEnd
+    ) {
+        val thumbHeight = 48.dp
+        val containerMaxHeight = this.maxHeight
+        val topOffset = (containerMaxHeight - thumbHeight) * currentRatio
+
+        Surface(
+            modifier = Modifier
+                .offset(y = topOffset.coerceIn(0.dp, containerMaxHeight - thumbHeight))
+                .padding(end = 4.dp)
+                .width(8.dp)
+                .height(thumbHeight),
+            shape = CircleShape,
+            color = if (isDragging) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+        ) {}
     }
 }

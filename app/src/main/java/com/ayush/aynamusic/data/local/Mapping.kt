@@ -20,7 +20,8 @@ fun TrackEntity.toTrack(): Track = Track(
     releaseYear = releaseYear,
     isFavorite = favorite,
     downloadState = runCatching { DownloadState.valueOf(downloadState) }.getOrDefault(DownloadState.NONE),
-    localFilePath = localFilePath
+    localFilePath = localFilePath,
+    dateAddedMs = addedAt
 )
 
 fun Track.toEntity(
@@ -28,7 +29,7 @@ fun Track.toEntity(
     downloadId: Long? = null,
     downloadState: DownloadState = this.downloadState,
     localFilePath: String? = this.localFilePath,
-    addedAt: Long = System.currentTimeMillis(),
+    addedAt: Long = if (dateAddedMs > 0) dateAddedMs else System.currentTimeMillis(),
     updatedAt: Long = System.currentTimeMillis()
 ): TrackEntity = TrackEntity(
     id = id,

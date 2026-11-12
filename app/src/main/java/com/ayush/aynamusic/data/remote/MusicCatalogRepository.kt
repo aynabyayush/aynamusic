@@ -200,7 +200,8 @@ class MusicCatalogRepository(
         seedTracks: List<Track>,
         limit: Int = 20,
         excludeIds: Set<String> = emptySet(),
-        excludeSongKeys: Set<String> = emptySet()
+        excludeSongKeys: Set<String> = emptySet(),
+        isNicheSeed: Boolean = false
     ): List<Track> =
         withContext(Dispatchers.IO) {
             if (seedTracks.isEmpty()) {
@@ -210,15 +211,16 @@ class MusicCatalogRepository(
             }
 
             val primarySeed = seedTracks.first()
+            val isNiche = isNicheSeed || MusicTrackUtils.isNicheTrack(primarySeed)
             val seedArtists = MusicTrackUtils.extractArtists(primarySeed.artist)
-            val primaryArtist = seedArtists.firstOrNull() ?: MusicTrackUtils.cleanHtml(primarySeed.artist)
+            val validSeedArtists = seedArtists.filter { it.isNotBlank() && !MusicTrackUtils.isSpamOrFalseArtist(it, primarySeed.title) }
+            val primaryArtist = validSeedArtists.firstOrNull() ?: MusicTrackUtils.cleanHtml(primarySeed.artist)
             val seedAlbum = MusicTrackUtils.cleanHtml(primarySeed.album)
             val languageTag = MusicTrackUtils.detectLanguageTag(primarySeed) ?: MusicTrackUtils.cleanHtml(primarySeed.genre)
 
-            val isArtistValid = primaryArtist.isNotBlank() && !MusicTrackUtils.isSpamOrFalseArtist(primaryArtist, primarySeed.title)
             val isAlbumValid = !seedAlbum.isNullOrBlank() && seedAlbum.length >= 3 && seedAlbum != "Single" && seedAlbum != "Unknown Album"
             val isLangValid = !languageTag.isNullOrBlank() && languageTag.isNotBlank()
-            val genreTag = MusicTrackUtils.cleanHtml(primarySeed.genre)
+            val genreTag = MusicTrackUtils.extractGenre(primarySeed)
 
             // Resolve YouTube Video ID for Seed Track to query YouTube's official recommendation neural net
             val youtubeVideoId = if (primarySeed.id.startsWith("piped:")) {
@@ -231,29 +233,39 @@ class MusicCatalogRepository(
 
             val queries = mutableListOf<String>()
 
-            // 1. Global & Regional Popularity Queries (Highest Priority)
-            if (isLangValid && genreTag.isNotBlank()) {
-                queries.add("$languageTag $genreTag top hits")
-                queries.add("$languageTag $genreTag global trending")
+            // Multi-artist queries: build search queries for ALL involved artists
+            for (artist in validSeedArtists) {
+                queries.add(artist)
+                queries.add("$artist songs")
+                queries.add("$artist top songs")
+                queries.add("$artist hits")
+                if (isNiche && isLangValid && genreTag.isNotBlank()) {
+                    queries.add("$artist $genreTag")
+                    queries.add("$artist indie")
+                }
             }
-            if (isLangValid) {
-                queries.add("$languageTag global top 50")
-                queries.add("$languageTag top songs 2024")
-                queries.add("$languageTag hits radio")
-            }
-
             queries.add("${primarySeed.title} radio")
             queries.add("${primarySeed.title} mix")
 
-            if (isArtistValid) {
-                if (isLangValid) {
-                    queries.add("$primaryArtist $languageTag hits")
+            if (isNiche) {
+                if (isLangValid && genreTag.isNotBlank()) {
+                    queries.add("$languageTag $genreTag indie")
+                    queries.add("$languageTag $genreTag acoustic unplugged")
+                    queries.add("$languageTag $genreTag authentic")
+                    queries.add("$languageTag $genreTag sufi")
                 }
-                queries.add("$primaryArtist top songs")
-            }
-
-            if (isAlbumValid) {
-                queries.add("$seedAlbum songs")
+            } else {
+                if (isLangValid && genreTag.isNotBlank()) {
+                    queries.add("$languageTag $genreTag top hits")
+                    queries.add("$languageTag $genreTag global trending")
+                }
+                if (isLangValid) {
+                    queries.add("$languageTag global top 50")
+                    queries.add("$languageTag top songs 2024")
+                }
+                if (isAlbumValid) {
+                    queries.add("$seedAlbum songs")
+                }
             }
 
             if (queries.isEmpty()) {
@@ -270,10 +282,9 @@ class MusicCatalogRepository(
             }.filter { it.isNotBlank() }.toSet() + excludeSongKeys
 
             coroutineScope {
-                // Fetch YouTube Music Official "Up Next" / Autoplay queue for seed videoId
                 val youtubeNextJob = async {
                     if (!youtubeVideoId.isNullOrBlank()) {
-                        runCatching { fetchPipedNextTracks(youtubeVideoId, 15) }.getOrDefault(emptyList())
+                        runCatching { pipedSearch("${primarySeed.title} mix", 15) }.getOrDefault(emptyList())
                     } else emptyList()
                 }
 
@@ -283,6 +294,16 @@ class MusicCatalogRepository(
                 val pipedJobs = queries.distinct().take(3).map { q ->
                     async { runCatching { pipedSearch(q, 10) }.getOrDefault(emptyList()) }
                 }
+                val audiusNicheJob = async {
+                    if (isNiche) {
+                        runCatching { audiusSearch("$languageTag $genreTag", 15) }.getOrDefault(emptyList())
+                    } else emptyList()
+                }
+                val jamendoNicheJob = async {
+                    if (isNiche) {
+                        runCatching { jamendoSearch("$languageTag $genreTag", 15) }.getOrDefault(emptyList())
+                    } else emptyList()
+                }
 
                 val youtubeUpNextTracks = youtubeNextJob.await()
                 val youtubeUpNextKeys = youtubeUpNextTracks.map { MusicTrackUtils.normalizeTitle(it.title) }.toSet()
@@ -291,6 +312,10 @@ class MusicCatalogRepository(
                     addAll(youtubeUpNextTracks)
                     saavnJobs.forEach { addAll(it.await()) }
                     pipedJobs.forEach { addAll(it.await()) }
+                    if (isNiche) {
+                        addAll(audiusNicheJob.await())
+                        addAll(jamendoNicheJob.await())
+                    }
                 }
 
                 val candidatePairs = fetched.filter { track ->
@@ -299,23 +324,47 @@ class MusicCatalogRepository(
                     !seedIds.contains(track.id) &&
                     !seedSongKeys.contains(MusicTrackUtils.normalizeTitle(track.title)) &&
                     !seedSongKeys.contains(MusicTrackUtils.toSongKey(track.title, track.artist)) &&
-                    MusicTrackUtils.matchesGenreLanguageArtistAlbum(track, primarySeed)
+                    (if (isNiche) {
+                        MusicTrackUtils.matchesStrictGenreAndLanguage(track, primarySeed) && MusicTrackUtils.isNicheTrack(track, primarySeed)
+                    } else {
+                        MusicTrackUtils.matchesGenreLanguageArtistAlbum(track, primarySeed)
+                    })
                 }
                 .distinctBy { MusicTrackUtils.normalizeTitle(it.title) }
                 .mapIndexed { index, track ->
                     var score = MusicTrackUtils.calculateAffinityScore(track, primarySeed)
-                    
-                    // Popularity Rank Boost: Top global/regional chart positions get a heavy boost
+                    val candArtists = MusicTrackUtils.extractArtists(track.artist).map { MusicTrackUtils.normalizeArtist(it) }
+                    val seedArtistNorms = validSeedArtists.map { MusicTrackUtils.normalizeArtist(it) }
+
+                    var artistMatchCount = 0
+                    for (sa in seedArtistNorms) {
+                        if (sa.isNotBlank() && candArtists.any { ca -> ca.isNotBlank() && (ca == sa || ca.contains(sa) || sa.contains(ca)) }) {
+                            artistMatchCount++
+                        }
+                    }
+
+                    if (artistMatchCount >= 2) {
+                        score += 85
+                    } else if (artistMatchCount == 1) {
+                        score += 65
+                    }
+
+                    if (isNiche) {
+                        score += MusicTrackUtils.calculateNicheScore(track)
+                        if (MusicTrackUtils.matchesStrictGenreAndLanguage(track, primarySeed)) {
+                            score += 40
+                        }
+                    }
+
                     when (index) {
                         in 0..2 -> score += 50
                         in 3..7 -> score += 35
                         in 8..14 -> score += 20
                     }
 
-                    // YouTube Music Neural Network Boost for globally trending up-next tracks
                     val normTitle = MusicTrackUtils.normalizeTitle(track.title)
                     if (youtubeUpNextKeys.contains(normTitle)) {
-                        score += 50
+                        score += 60
                     }
 
                     track to score
@@ -444,7 +493,22 @@ class MusicCatalogRepository(
 
                 streamUrl = transformMediaQuality(streamUrl, quality)
 
-                val duration = item.optLong("duration", 180L) * 1000L
+                val moreInfo = item.optJSONObject("more_info")
+                val rawDuration = item.optString("duration")
+                    .ifBlank { item.optString("length") }
+                    .ifBlank { moreInfo?.optString("duration").orEmpty() }
+                    .ifBlank { moreInfo?.optString("length").orEmpty() }
+
+                val durationSec = rawDuration.toLongOrNull()
+                    ?: item.optLong("duration", 0L).takeIf { it > 0 }
+                    ?: moreInfo?.optLong("duration", 0L)?.takeIf { it > 0 }
+                    ?: 0L
+
+                val duration = if (durationSec > 0) {
+                    if (durationSec > 10_000L) durationSec else durationSec * 1000L
+                } else {
+                    0L
+                }
                 val external = item.optionalString("perma_url")
                     ?: item.optionalString("url")
                     ?: "https://www.jiosaavn.com"
@@ -710,64 +774,6 @@ class MusicCatalogRepository(
                         source = TrackSource.AUDIUS,
                         streamUrl = "https://pipedapi.kavin.rocks/streams/$videoId",
                         externalUrl = "https://music.youtube.com/watch?v=$videoId",
-                        preview = false,
-                        genre = null,
-                        releaseYear = null
-                    )
-                )
-            }
-        }
-    }
-
-    private fun fetchPipedNextTracks(videoId: String, limit: Int = 15): List<Track> {
-        if (videoId.isBlank()) return emptyList()
-        val endpoints = listOf(
-            "https://pipedapi.kavin.rocks/next/$videoId",
-            "https://api.piped.video/next/$videoId"
-        )
-        for (endpoint in endpoints) {
-            val tracks = runCatching {
-                val root = getJson(endpoint)
-                val related = root.optJSONArray("relatedStreams")
-                parsePipedNextStreams(related, limit)
-            }.getOrDefault(emptyList())
-            if (tracks.isNotEmpty()) return tracks
-        }
-        return emptyList()
-    }
-
-    private fun parsePipedNextStreams(array: JSONArray?, limit: Int): List<Track> {
-        if (array == null) return emptyList()
-        return buildList {
-            for (i in 0 until minOf(array.length(), limit)) {
-                val item = array.optJSONObject(i) ?: continue
-                val videoUrl = item.optString("url")
-                val vId = videoUrl.substringAfter("v=", "").takeIf { it.isNotBlank() }
-                    ?: item.optString("id").takeIf { it.isNotBlank() } ?: continue
-                val rawTitle = item.optString("title")
-                if (rawTitle.isBlank()) continue
-                val title = rawTitle.cleanHtml()
-                val artist = item.optString("uploaderName")
-                    .replace(" - Topic", "")
-                    .replace("- Topic", "")
-                    .ifBlank { "YouTube Music" }
-                    .cleanHtml()
-                val artwork = item.optionalString("thumbnail")
-                val duration = item.optLong("duration", 180L) * 1000L
-
-                if (MusicTrackUtils.isSpamOrFalseArtist(artist, title)) continue
-
-                add(
-                    Track(
-                        id = "piped:$vId",
-                        title = title,
-                        artist = artist,
-                        album = null,
-                        artworkUrl = artwork,
-                        durationMs = duration,
-                        source = TrackSource.AUDIUS,
-                        streamUrl = "https://pipedapi.kavin.rocks/streams/$vId",
-                        externalUrl = "https://music.youtube.com/watch?v=$vId",
                         preview = false,
                         genre = null,
                         releaseYear = null
@@ -1376,5 +1382,202 @@ object MusicTrackUtils {
                 (candGenreOrLang.contains(seedGenreOrLang) || seedGenreOrLang.contains(candGenreOrLang))
 
         return artistMatch || albumMatch || genreLangMatch
+    }
+
+    fun extractGenre(track: Track): String {
+        val raw = cleanHtml(track.genre).lowercase().trim()
+        if (raw.isNotBlank()) return raw
+        val text = "${track.title} ${track.artist} ${track.album}".lowercase()
+        val genreKeywords = listOf(
+            "sufi", "ghazal", "indie", "rock", "pop", "classical", "hip hop",
+            "rap", "jazz", "blues", "metal", "folk", "edm", "house", "techno",
+            "ambient", "lofi", "devotional", "qawwali", "acoustic", "punjabi",
+            "romantic", "sad", "dance", "instrumental", "fusion", "carnatic",
+            "hindustani", "alternative", "world"
+        )
+        return genreKeywords.firstOrNull { text.contains(it) } ?: "general"
+    }
+
+    fun calculateNicheScore(track: Track): Int {
+        var score = 0
+        when (track.source) {
+            TrackSource.AUDIUS, TrackSource.JAMENDO -> score += 50
+            TrackSource.LOCAL -> score += 30
+            else -> {}
+        }
+
+        val genreText = cleanHtml(track.genre).lowercase()
+        val artistText = cleanHtml(track.artist).lowercase()
+        val titleText = cleanHtml(track.title).lowercase()
+        val albumText = cleanHtml(track.album).lowercase()
+        val combinedText = "$genreText $artistText $titleText $albumText"
+
+        val nicheKeywords = listOf(
+            "indie", "sufi", "ghazal", "underground", "ambient", "lofi",
+            "acoustic", "folk", "classical", "instrumental", "experimental",
+            "jazz", "blues", "metal", "celtic", "qawwali", "devotional",
+            "meditation", "regional", "post-rock", "indie-pop", "indie-rock",
+            "bedroom pop", "alternative", "world", "math rock", "shoegaze",
+            "dream pop", "unplugged", "fusion", "carnatic", "hindustani"
+        )
+
+        for (keyword in nicheKeywords) {
+            if (combinedText.contains(keyword)) {
+                score += 35
+                break
+            }
+        }
+
+        if (albumText.contains("single") || albumText.contains("ep") || albumText.isBlank()) {
+            score += 10
+        }
+
+        val mainstreamTerms = listOf("top 50", "chartbusters", "global hits", "billboard", "bollywood top")
+        if (mainstreamTerms.any { combinedText.contains(it) }) {
+            score -= 30
+        }
+
+        return score.coerceAtLeast(0)
+    }
+
+    fun isNicheTrack(track: Track, seed: Track? = null): Boolean {
+        if (seed != null) {
+            val seedArtists = extractArtists(seed.artist).map { normalizeArtist(it) }.filter { it.isNotBlank() }
+            val candArtists = extractArtists(track.artist).map { normalizeArtist(it) }.filter { it.isNotBlank() }
+            if (seedArtists.isNotEmpty() && candArtists.isNotEmpty() &&
+                seedArtists.any { sa -> candArtists.any { ca -> ca == sa || ca.contains(sa) || sa.contains(ca) } }
+            ) {
+                return true
+            }
+        }
+        return calculateNicheScore(track) >= 20
+    }
+
+    fun matchesStrictGenreAndLanguage(candidate: Track, seed: Track): Boolean {
+        if (isSpamOrFalseArtist(candidate.artist, candidate.title)) return false
+
+        val seedArtists = extractArtists(seed.artist).map { normalizeArtist(it) }.filter { it.isNotBlank() }
+        val candArtists = extractArtists(candidate.artist).map { normalizeArtist(it) }.filter { it.isNotBlank() }
+
+        // Any shared artist ALWAYS matches strictly!
+        if (seedArtists.isNotEmpty() && candArtists.isNotEmpty() &&
+            seedArtists.any { sa -> candArtists.any { ca -> ca == sa || ca.contains(sa) || sa.contains(ca) } }
+        ) {
+            return true
+        }
+
+        val seedLang = detectLanguageTag(seed)?.lowercase()
+        val candLang = detectLanguageTag(candidate)?.lowercase()
+
+        // Strict language check: if seed has a detected language, candidate MUST match it!
+        if (seedLang != null && candLang != null && seedLang != candLang) {
+            return false
+        }
+
+        val seedGenre = extractGenre(seed).lowercase()
+        val candGenre = extractGenre(candidate).lowercase()
+
+        val isSeedGeneric = seedGenre == "general" || seedGenre.isBlank()
+        val isCandGeneric = candGenre == "general" || candGenre.isBlank()
+
+        if (!isSeedGeneric && !isCandGeneric) {
+            val genreMatches = seedGenre == candGenre ||
+                    candGenre.contains(seedGenre) ||
+                    seedGenre.contains(candGenre)
+            if (!genreMatches) return false
+        }
+
+        return true
+    }
+
+    fun calculateRetentionScore(
+        candidate: Track,
+        seed: Track,
+        profile: com.ayush.aynamusic.data.model.UserInterestProfile,
+        existingQueueArtists: Map<String, Int> = emptyMap()
+    ): Double {
+        if (isSpamOrFalseArtist(candidate.artist, candidate.title)) return -1000.0
+        if (profile.skippedTrackIds.contains(candidate.id)) return -500.0
+
+        var score = calculateAffinityScore(candidate, seed).toDouble()
+
+        val seedArtists = extractArtists(seed.artist).map { normalizeArtist(it) }.filter { it.isNotBlank() }
+        val candArtists = extractArtists(candidate.artist).map { normalizeArtist(it) }.filter { it.isNotBlank() }
+
+        var artistMatchCount = 0
+        for (sa in seedArtists) {
+            if (candArtists.any { ca -> ca == sa || ca.contains(sa) || sa.contains(ca) }) {
+                artistMatchCount++
+            }
+        }
+
+        if (artistMatchCount >= 2) {
+            score += 85.0 // High bonus for multi-artist collaboration match!
+        } else if (artistMatchCount == 1) {
+            score += 65.0
+        }
+
+        val candGenre = extractGenre(candidate).lowercase()
+        val candLang = detectLanguageTag(candidate)?.lowercase()
+
+        // 1. User Favorite & Mined Playlist Artist Boost across ALL candidate artists!
+        var userArtistWeightSum = 0.0
+        var minedArtistWeightSum = 0.0
+        for (art in candArtists) {
+            userArtistWeightSum += profile.topArtists[art] ?: 0.0
+            minedArtistWeightSum += profile.minedPlaylistArtists[art] ?: 0.0
+        }
+        if (userArtistWeightSum > 0.0 || minedArtistWeightSum > 0.0) {
+            score += (userArtistWeightSum * 40.0) + (minedArtistWeightSum * 25.0)
+        }
+
+        // 2. User Preferred & Mined Playlist Genre Boost
+        val genreWeight = profile.topGenres[candGenre] ?: 0.0
+        val minedGenreWeight = profile.minedPlaylistGenres[candGenre] ?: 0.0
+        if (genreWeight > 0.0 || minedGenreWeight > 0.0) {
+            score += (genreWeight * 30.0) + (minedGenreWeight * 20.0)
+        }
+
+        // 3. User Preferred Language Boost
+        if (candLang != null) {
+            val langWeight = profile.topLanguages[candLang] ?: 0.0
+            if (langWeight > 0.0) {
+                score += langWeight * 25.0
+            }
+        }
+
+        // 4. Mined Playlist Track Presence & Loved Track Bonus
+        if (profile.minedPlaylistTrackIds.contains(candidate.id)) {
+            score += 40.0
+        }
+        if (profile.highAffinityTrackIds.contains(candidate.id) || candidate.isFavorite) {
+            score += 45.0
+        }
+
+        // 5. Niche Preference Alignment
+        val candIsNiche = isNicheTrack(candidate, seed)
+        if (profile.nicheRatio > 0.3 && candIsNiche) {
+            score += 35.0
+        }
+
+        // 6. Queue Pacing & Anti-Repetition Guard
+        val maxArtistInQueue = candArtists.maxOfOrNull { existingQueueArtists[it] ?: 0 } ?: 0
+        if (maxArtistInQueue >= 2) {
+            score -= 45.0
+        } else if (maxArtistInQueue == 1) {
+            score -= 15.0
+        }
+
+        // 7. Strict Niche & Language Rule
+        val isSeedNiche = isNicheTrack(seed) || (profile.nicheRatio > 0.4 && candIsNiche)
+        if (isSeedNiche) {
+            val matchesStrict = matchesStrictGenreAndLanguage(candidate, seed)
+            if (!matchesStrict || !candIsNiche) {
+                return -1000.0
+            }
+            score += 40.0
+        }
+
+        return score
     }
 }

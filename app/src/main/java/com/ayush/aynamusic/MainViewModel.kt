@@ -148,6 +148,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private var lyricsJob: Job? = null
     private var uiVisible = false
 
+    private var lastTrack: Track? = null
+    private var lastTrackStartTimeMs: Long = System.currentTimeMillis()
+    private var lastTrackMaxPositionMs: Long = 0L
+
     private val playedTrackIds = mutableSetOf<String>()
     private val playedSongKeys = mutableSetOf<String>()
 
@@ -162,6 +166,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             syncPlaybackState()
+            val c = controller
+            val prevTrack = lastTrack
+            if (prevTrack != null) {
+                val playedDurationMs = (System.currentTimeMillis() - lastTrackStartTimeMs).coerceAtLeast(0L)
+                val trackDurationMs = prevTrack.durationMs.takeIf { it > 0 } ?: 180_000L
+                val maxPos = lastTrackMaxPositionMs.coerceAtLeast(0L)
+                val completionRatio = (maxPos.toDouble() / trackDurationMs.toDouble()).coerceIn(0.0, 1.0)
+
+                viewModelScope.launch {
+                    library.recordPlaybackMemory(prevTrack, playedDurationMs, completionRatio)
+                }
+            }
+
+            val newTrack = mediaItem?.toTrack()
+            lastTrack = newTrack
+            lastTrackStartTimeMs = System.currentTimeMillis()
+            lastTrackMaxPositionMs = c?.currentPosition?.coerceAtLeast(0L) ?: 0L
+
             mediaItem?.toTrack()?.let { track ->
                 recordPlayedTrack(track)
                 if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
@@ -658,106 +680,154 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private var isGeneratingQueue = false
+
     private fun ensureTasteAutoplayQueue() {
+        if (isGeneratingQueue) return
         viewModelScope.launch {
-            val c = controller ?: return@launch
-            val currentIndex = c.currentMediaItemIndex
-            val totalItems = c.mediaItemCount
+            isGeneratingQueue = true
+            try {
+                val c = controller ?: return@launch
+                val currentIndex = c.currentMediaItemIndex
+                val totalItems = c.mediaItemCount
 
-            if (totalItems == 0 || currentIndex >= totalItems - 3 || c.playbackState == Player.STATE_ENDED) {
-                val currentTrack = c.currentMediaItem?.toTrack() ?: _playback.value.currentTrack
-                if (currentTrack == null) return@launch
+                if (totalItems == 0 || currentIndex >= totalItems - 4 || c.playbackState == Player.STATE_ENDED) {
+                    val currentTrack = c.currentMediaItem?.toTrack() ?: _playback.value.currentTrack
+                    if (currentTrack == null) return@launch
 
-                recordPlayedTrack(currentTrack)
+                    recordPlayedTrack(currentTrack)
 
-                val offline = !online.value || settings.value.offlineOnly
+                    val offline = !online.value || settings.value.offlineOnly
 
-                val existingQueueTracks = (0 until totalItems).mapNotNull { c.getMediaItemAt(it).toTrack() }
-                val existingIds = existingQueueTracks.map { it.id }.toSet()
-                val existingSongKeys = existingQueueTracks.flatMap { tr ->
-                    listOf(
-                        MusicTrackUtils.normalizeTitle(tr.title),
-                        MusicTrackUtils.toSongKey(tr.title, tr.artist)
-                    )
-                }.filter { it.isNotBlank() }.toSet()
-
-                val allExcludeIds = existingIds + playedTrackIds
-                val allExcludeKeys = existingSongKeys + playedSongKeys
-
-                // 1. Analyze User's Listening History (recent), Favorites, and Created Playlists for matching genre/language songs
-                val userPlaylistTracks = runCatching { library.getAllUserPlaylistTracks() }.getOrDefault(emptyList())
-                val userPersonalCollection = (recent.value + favorites.value + userPlaylistTracks).distinctBy { it.id }
-
-                val matchingPersonalTracks = userPersonalCollection.filter { track ->
-                    track.id != currentTrack.id &&
-                    !allExcludeIds.contains(track.id) &&
-                    !allExcludeKeys.contains(MusicTrackUtils.normalizeTitle(track.title)) &&
-                    !allExcludeKeys.contains(MusicTrackUtils.toSongKey(track.title, track.artist)) &&
-                    !MusicTrackUtils.isSpamOrFalseArtist(track.artist, track.title) &&
-                    MusicTrackUtils.matchesGenreLanguageArtistAlbum(track, currentTrack) &&
-                    (!offline || track.isLocal || track.isDownloaded)
-                }
-                .map { track ->
-                    track to (MusicTrackUtils.calculateAffinityScore(track, currentTrack) + 20)
-                }
-                .filter { it.second > -100 }
-                .sortedByDescending { it.second }
-                .map { it.first }
-
-                val candidates = if (offline) {
-                    matchingPersonalTracks.take(20)
-                } else {
-                    val matchingPersonalIds = matchingPersonalTracks.map { it.id }.toSet()
-                    val matchingPersonalKeys = matchingPersonalTracks.map { MusicTrackUtils.normalizeTitle(it.title) }.toSet()
-
-                    val onlineRecommendations = runCatching {
-                        container.catalog.fetchTasteBasedRecommendations(
-                            seedTracks = listOf(currentTrack),
-                            limit = 20,
-                            excludeIds = allExcludeIds + matchingPersonalIds,
-                            excludeSongKeys = allExcludeKeys + matchingPersonalKeys
+                    val existingQueueTracks = (0 until totalItems).mapNotNull { c.getMediaItemAt(it).toTrack() }
+                    val existingIds = existingQueueTracks.map { it.id }.toSet()
+                    val existingSongKeys = existingQueueTracks.flatMap { tr ->
+                        listOf(
+                            MusicTrackUtils.normalizeTitle(tr.title),
+                            MusicTrackUtils.toSongKey(tr.title, tr.artist)
                         )
-                    }.getOrDefault(emptyList()).filter { track ->
+                    }.filter { it.isNotBlank() }.toSet()
+
+                    val queueArtistCounts = existingQueueTracks.groupingBy { MusicTrackUtils.normalizeArtist(it.artist) }.eachCount()
+
+                    if (playedTrackIds.size > 50) {
+                        val recentToKeep = playedTrackIds.toList().takeLast(25).toSet()
+                        playedTrackIds.clear()
+                        playedTrackIds.addAll(recentToKeep)
+                    }
+
+                    val allExcludeIds = existingIds + playedTrackIds
+                    val allExcludeKeys = existingSongKeys + playedSongKeys
+
+                    val userProfile = runCatching { library.getUserInterestProfile() }.getOrDefault(com.ayush.aynamusic.data.model.UserInterestProfile())
+
+                    val seedGenre = MusicTrackUtils.extractGenre(currentTrack)
+                    val seedLanguage = MusicTrackUtils.detectLanguageTag(currentTrack) ?: seedGenre
+                    val isSeedNiche = MusicTrackUtils.isNicheTrack(currentTrack) ||
+                            userProfile.nicheRatio > 0.35 ||
+                            runCatching { library.isNicheListenerForGenreLanguage(seedGenre, seedLanguage) }.getOrDefault(false)
+
+                    // 1. User Personal Collection (Comfort Pool)
+                    val userPlaylistTracks = runCatching { library.getAllUserPlaylistTracks() }.getOrDefault(emptyList())
+                    val userPersonalCollection = (recent.value + favorites.value + userPlaylistTracks).distinctBy { it.id }
+
+                    val matchingPersonalTracks = userPersonalCollection.filter { track ->
                         track.id != currentTrack.id &&
                         !allExcludeIds.contains(track.id) &&
                         !allExcludeKeys.contains(MusicTrackUtils.normalizeTitle(track.title)) &&
                         !allExcludeKeys.contains(MusicTrackUtils.toSongKey(track.title, track.artist)) &&
                         !MusicTrackUtils.isSpamOrFalseArtist(track.artist, track.title) &&
-                        MusicTrackUtils.matchesGenreLanguageArtistAlbum(track, currentTrack)
+                        (!offline || track.isLocal || track.isDownloaded)
+                    }
+                    .map { track ->
+                        val retScore = MusicTrackUtils.calculateRetentionScore(track, currentTrack, userProfile, queueArtistCounts) + 15.0
+                        track to retScore
+                    }
+                    .filter { it.second > -100.0 }
+                    .sortedByDescending { it.second }
+                    .map { it.first }
+
+                    var candidates = if (offline) {
+                        matchingPersonalTracks.take(20)
+                    } else {
+                        val matchingPersonalIds = matchingPersonalTracks.map { it.id }.toSet()
+                        val matchingPersonalKeys = matchingPersonalTracks.map { MusicTrackUtils.normalizeTitle(it.title) }.toSet()
+
+                        val onlineRecommendations = runCatching {
+                            container.catalog.fetchTasteBasedRecommendations(
+                                seedTracks = listOf(currentTrack),
+                                limit = 20,
+                                excludeIds = allExcludeIds + matchingPersonalIds,
+                                excludeSongKeys = allExcludeKeys + matchingPersonalKeys,
+                                isNicheSeed = isSeedNiche
+                            )
+                        }.getOrDefault(emptyList())
+                        .filter { track ->
+                            track.id != currentTrack.id &&
+                            !allExcludeIds.contains(track.id) &&
+                            !allExcludeKeys.contains(MusicTrackUtils.normalizeTitle(track.title)) &&
+                            !allExcludeKeys.contains(MusicTrackUtils.toSongKey(track.title, track.artist)) &&
+                            !MusicTrackUtils.isSpamOrFalseArtist(track.artist, track.title)
+                        }
+                        .map { track ->
+                            val retScore = MusicTrackUtils.calculateRetentionScore(track, currentTrack, userProfile, queueArtistCounts)
+                            track to retScore
+                        }
+                        .filter { it.second > -100.0 }
+                        .sortedByDescending { it.second }
+                        .map { it.first }
+
+                        // Retention Mix Interleaving: 3 Discovery Tracks : 1 Comfort Track
+                        buildList {
+                            var pIdx = 0
+                            var oIdx = 0
+                            val maxPersonal = minOf(matchingPersonalTracks.size, 5)
+                            while ((pIdx < maxPersonal || oIdx < onlineRecommendations.size) && size < 20) {
+                                if (pIdx < maxPersonal && (oIdx >= onlineRecommendations.size || size % 3 == 2)) {
+                                    add(matchingPersonalTracks[pIdx++])
+                                } else if (oIdx < onlineRecommendations.size) {
+                                    add(onlineRecommendations[oIdx++])
+                                } else {
+                                    break
+                                }
+                            }
+                        }
                     }
 
-                    buildList {
-                        var pIdx = 0
-                        var oIdx = 0
-                        val maxPersonal = minOf(matchingPersonalTracks.size, 6)
-                        while ((pIdx < maxPersonal || oIdx < onlineRecommendations.size) && size < 20) {
-                            if (pIdx < maxPersonal && (oIdx >= onlineRecommendations.size || size % 3 == 0)) {
-                                add(matchingPersonalTracks[pIdx++])
-                            } else if (oIdx < onlineRecommendations.size) {
-                                add(onlineRecommendations[oIdx++])
-                            } else {
-                                break
+                    // Endless Auto-Queue Fallback: If primary seed returned low candidates, query profile top artists/genres
+                    if (candidates.size < 5 && !offline) {
+                        val topArtist = userProfile.topArtists.maxByOrNull { it.value }?.key.orEmpty()
+                        val topGenre = userProfile.topGenres.maxByOrNull { it.value }?.key.orEmpty()
+                        val fallbackQuery = if (topArtist.isNotBlank()) "$topArtist hits" else if (topGenre.isNotBlank()) "$seedLanguage $topGenre hits" else "$seedLanguage top hits"
+                        val fallbackTracks = runCatching {
+                            container.catalog.search(fallbackQuery).full
+                        }.getOrDefault(emptyList()).filter { track ->
+                            track.id != currentTrack.id &&
+                            !existingIds.contains(track.id) &&
+                            !MusicTrackUtils.isSpamOrFalseArtist(track.artist, track.title)
+                        }
+                        candidates = (candidates + fallbackTracks).distinctBy { it.id }.take(20)
+                    }
+
+                    if (candidates.isNotEmpty()) {
+                        val newMediaItems = candidates.map(::toMediaItem)
+                        val wasEnded = c.playbackState == Player.STATE_ENDED
+
+                        if (totalItems == 0) {
+                            c.setMediaItems(newMediaItems, 0, 0L)
+                            c.prepare()
+                            c.play()
+                        } else {
+                            c.addMediaItems(newMediaItems)
+                            if (wasEnded) {
+                                c.seekToNextMediaItem()
+                                c.play()
                             }
                         }
                     }
                 }
-
-                if (candidates.isNotEmpty()) {
-                    val newMediaItems = candidates.map(::toMediaItem)
-                    val wasEnded = c.playbackState == Player.STATE_ENDED
-
-                    if (totalItems == 0) {
-                        c.setMediaItems(newMediaItems, 0, 0L)
-                        c.prepare()
-                        c.play()
-                    } else {
-                        c.addMediaItems(newMediaItems)
-                        if (wasEnded) {
-                            c.seekToNextMediaItem()
-                            c.play()
-                        }
-                    }
-                }
+            } finally {
+                isGeneratingQueue = false
             }
         }
     }
@@ -805,6 +875,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         tickerJob = viewModelScope.launch {
             while (isActive) {
                 syncPlaybackState()
+                val c = controller
+                if (c != null && c.isPlaying && c.mediaItemCount > 0 && c.currentMediaItemIndex >= c.mediaItemCount - 4) {
+                    ensureTasteAutoplayQueue()
+                }
                 delay(if (controller?.isPlaying == true) 500L else 1_500L)
             }
         }
@@ -814,6 +888,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val c = controller ?: return
         val queue = (0 until c.mediaItemCount).mapNotNull { c.getMediaItemAt(it).toTrack() }
         val current = c.currentMediaItem?.toTrack()
+        if (c.currentPosition > 0) {
+            lastTrackMaxPositionMs = maxOf(lastTrackMaxPositionMs, c.currentPosition)
+        }
         _playback.update {
             it.copy(
                 currentTrack = current,
@@ -1090,6 +1167,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             loadHome(force = true)
         }
     }
+
+    fun setSortSettings(playlistField: String, trackField: String, direction: String) =
+        viewModelScope.launch { container.settings.setSortSettings(playlistField, trackField, direction) }
+
+    fun setHeroTrack(track: Track?) =
+        viewModelScope.launch { container.settings.setHeroTrack(track) }
 
     fun saveCloudConfig(url: String, user: String, password: String) {
         val clean = url.trim()

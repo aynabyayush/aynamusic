@@ -13,9 +13,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlaylistEntity::class,
         PlaylistTrackEntity::class,
         RecentEntity::class,
-        LyricsEntity::class
+        LyricsEntity::class,
+        UserTrackMemoryEntity::class
     ],
-    version = 3,
+    version = 5,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -23,6 +24,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun recentDao(): RecentDao
     abstract fun playlistDao(): PlaylistDao
     abstract fun lyricsDao(): LyricsDao
+    abstract fun userTrackMemoryDao(): UserTrackMemoryDao
 
     companion object {
         @Volatile
@@ -61,6 +63,46 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `user_track_memory` (
+                        `trackId` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `artist` TEXT NOT NULL,
+                        `genre` TEXT,
+                        `language` TEXT,
+                        `playCount` INTEGER NOT NULL DEFAULT 0,
+                        `completionCount` INTEGER NOT NULL DEFAULT 0,
+                        `skipCount` INTEGER NOT NULL DEFAULT 0,
+                        `totalPlayDurationMs` INTEGER NOT NULL DEFAULT 0,
+                        `lastPlayedAt` INTEGER NOT NULL DEFAULT 0,
+                        `isNiche` INTEGER NOT NULL DEFAULT 0,
+                        `nicheScore` INTEGER NOT NULL DEFAULT 0,
+                        `affinityScore` REAL NOT NULL DEFAULT 0.0,
+                        `source` TEXT,
+                        PRIMARY KEY(`trackId`)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE user_track_memory ADD COLUMN `tier0Count` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE user_track_memory ADD COLUMN `tier1Count` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE user_track_memory ADD COLUMN `tier2Count` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE user_track_memory ADD COLUMN `tier3Count` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE user_track_memory ADD COLUMN `tier4Count` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE user_track_memory ADD COLUMN `tier5Count` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE user_track_memory ADD COLUMN `lastCompletionRatio` REAL NOT NULL DEFAULT 0.0")
+                db.execSQL("ALTER TABLE user_track_memory ADD COLUMN `avgCompletionRatio` REAL NOT NULL DEFAULT 0.0")
+                db.execSQL("ALTER TABLE user_track_memory ADD COLUMN `playlistOccurrenceCount` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -68,7 +110,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "ayna_music.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()
                     .also { instance = it }

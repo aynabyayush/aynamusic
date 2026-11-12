@@ -227,3 +227,57 @@ interface LyricsDao {
     @Query("DELETE FROM lyrics")
     suspend fun clear()
 }
+
+@Entity(tableName = "user_track_memory")
+data class UserTrackMemoryEntity(
+    @PrimaryKey val trackId: String,
+    val title: String,
+    val artist: String,
+    val genre: String?,
+    val language: String?,
+    val playCount: Int = 0,
+    val completionCount: Int = 0,
+    val skipCount: Int = 0,
+    val totalPlayDurationMs: Long = 0L,
+    val lastPlayedAt: Long = System.currentTimeMillis(),
+    val isNiche: Boolean = false,
+    val nicheScore: Int = 0,
+    val affinityScore: Double = 0.0,
+    val source: String? = null,
+    val tier0Count: Int = 0,
+    val tier1Count: Int = 0,
+    val tier2Count: Int = 0,
+    val tier3Count: Int = 0,
+    val tier4Count: Int = 0,
+    val tier5Count: Int = 0,
+    val lastCompletionRatio: Double = 0.0,
+    val avgCompletionRatio: Double = 0.0,
+    val playlistOccurrenceCount: Int = 0
+)
+
+@Dao
+interface UserTrackMemoryDao {
+    @Query("SELECT * FROM user_track_memory WHERE trackId = :trackId LIMIT 1")
+    suspend fun get(trackId: String): UserTrackMemoryEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(memory: UserTrackMemoryEntity)
+
+    @Query("SELECT * FROM user_track_memory ORDER BY lastPlayedAt DESC LIMIT 200")
+    suspend fun getAllMemories(): List<UserTrackMemoryEntity>
+
+    @Query("SELECT * FROM user_track_memory WHERE isNiche = 1 ORDER BY lastPlayedAt DESC")
+    suspend fun getNicheMemories(): List<UserTrackMemoryEntity>
+
+    @Query("SELECT * FROM user_track_memory WHERE isNiche = 1 AND (LOWER(genre) LIKE '%' || LOWER(:genre) || '%' OR LOWER(:genre) LIKE '%' || LOWER(genre) || '%') AND (LOWER(language) = LOWER(:language)) ORDER BY affinityScore DESC, lastPlayedAt DESC")
+    suspend fun getNicheMemoriesByGenreLanguage(genre: String, language: String): List<UserTrackMemoryEntity>
+
+    @Query("SELECT * FROM user_track_memory WHERE (LOWER(genre) LIKE '%' || LOWER(:genre) || '%' OR LOWER(:genre) LIKE '%' || LOWER(genre) || '%') AND (LOWER(language) = LOWER(:language)) ORDER BY affinityScore DESC")
+    suspend fun getMemoriesByGenreLanguage(genre: String, language: String): List<UserTrackMemoryEntity>
+
+    @Query("SELECT * FROM user_track_memory ORDER BY affinityScore DESC LIMIT 50")
+    fun observeTopAffinityTracks(): Flow<List<UserTrackMemoryEntity>>
+
+    @Query("DELETE FROM user_track_memory WHERE trackId = :trackId")
+    suspend fun delete(trackId: String)
+}

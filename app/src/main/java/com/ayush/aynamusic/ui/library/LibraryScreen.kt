@@ -17,18 +17,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import com.ayush.aynamusic.ui.components.FastScroller
+import com.ayush.aynamusic.ui.components.FastScrollerForGrid
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DownloadDone
@@ -47,7 +54,11 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -87,6 +98,57 @@ import com.ayush.aynamusic.util.asClock
 import com.ayush.aynamusic.util.initials
 import java.util.Locale
 
+enum class PlaylistSortField(val label: String) {
+    DATE_UPDATED("Date updated"),
+    DATE_CREATED("Date created"),
+    NAME("Name"),
+    TRACK_COUNT("Track count")
+}
+
+enum class TrackSortField(val label: String) {
+    DATE_ADDED("Date added"),
+    TITLE("Title"),
+    ARTIST("Artist"),
+    ALBUM("Album"),
+    DURATION("Duration")
+}
+
+enum class SortDirection(val label: String) {
+    ASCENDING("Ascending"),
+    DESCENDING("Descending")
+}
+
+private fun List<PlaylistSummary>.sortPlaylists(
+    field: PlaylistSortField,
+    direction: SortDirection
+): List<PlaylistSummary> {
+    val sorted = when (field) {
+        PlaylistSortField.DATE_UPDATED -> sortedBy { it.updatedAt }
+        PlaylistSortField.DATE_CREATED -> sortedBy { it.createdAt }
+        PlaylistSortField.NAME -> sortedBy { it.name.lowercase(Locale.ROOT) }
+        PlaylistSortField.TRACK_COUNT -> sortedBy { it.trackCount }
+    }
+    val defaultDescending = field == PlaylistSortField.DATE_UPDATED || field == PlaylistSortField.DATE_CREATED
+    val shouldReverse = if (defaultDescending) direction == SortDirection.ASCENDING else direction == SortDirection.DESCENDING
+    return if (shouldReverse) sorted.reversed() else sorted
+}
+
+private fun List<Track>.sortTracks(
+    field: TrackSortField,
+    direction: SortDirection
+): List<Track> {
+    val sorted = when (field) {
+        TrackSortField.DATE_ADDED -> sortedBy { it.dateAddedMs }
+        TrackSortField.TITLE -> sortedBy { it.title.lowercase(Locale.ROOT) }
+        TrackSortField.ARTIST -> sortedWith(compareBy({ it.artist.lowercase(Locale.ROOT) }, { it.title.lowercase(Locale.ROOT) }))
+        TrackSortField.ALBUM -> sortedWith(compareBy({ (it.album ?: "").lowercase(Locale.ROOT) }, { it.title.lowercase(Locale.ROOT) }))
+        TrackSortField.DURATION -> sortedBy { it.durationMs }
+    }
+    val defaultDescending = field == TrackSortField.DATE_ADDED || field == TrackSortField.DURATION
+    val shouldReverse = if (defaultDescending) direction == SortDirection.ASCENDING else direction == SortDirection.DESCENDING
+    return if (shouldReverse) sorted.reversed() else sorted
+}
+
 enum class LibraryTab(val label: String) {
     PLAYLISTS("Playlists"),
     LIKED("Liked"),
@@ -108,8 +170,10 @@ fun LibraryScreen(
     localLoading: Boolean,
     currentTrackId: String?,
     isPlaying: Boolean,
+    savedSortSettings: Triple<String, String, String> = Triple("DATE_UPDATED", "DATE_ADDED", "DESCENDING"),
     selectedTab: LibraryTab,
     onTabChange: (LibraryTab) -> Unit,
+    onSortSettingsChanged: ((playlistField: String, trackField: String, direction: String) -> Unit)? = null,
     onOpenPlaylist: (String) -> Unit,
     onCreatePlaylist: (String) -> Unit,
     onImportSpotifyPlaylist: (link: String, onProgress: (String) -> Unit, onComplete: (String?) -> Unit) -> Unit,
@@ -124,6 +188,27 @@ fun LibraryScreen(
 ) {
     var showCreateDialog by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    var playlistSortFieldName by rememberSaveable { mutableStateOf(savedSortSettings.first) }
+    var trackSortFieldName by rememberSaveable { mutableStateOf(savedSortSettings.second) }
+    var sortDirectionName by rememberSaveable { mutableStateOf(savedSortSettings.third) }
+    var sortMenuOpen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(savedSortSettings) {
+        playlistSortFieldName = savedSortSettings.first
+        trackSortFieldName = savedSortSettings.second
+        sortDirectionName = savedSortSettings.third
+    }
+
+    val playlistSortField = remember(playlistSortFieldName) {
+        runCatching { PlaylistSortField.valueOf(playlistSortFieldName) }.getOrDefault(PlaylistSortField.DATE_UPDATED)
+    }
+    val trackSortField = remember(trackSortFieldName) {
+        runCatching { TrackSortField.valueOf(trackSortFieldName) }.getOrDefault(TrackSortField.DATE_ADDED)
+    }
+    val sortDirection = remember(sortDirectionName) {
+        runCatching { SortDirection.valueOf(sortDirectionName) }.getOrDefault(SortDirection.ASCENDING)
+    }
+
     val cleanQuery = searchQuery.trim()
 
     val filteredPlaylists = remember(playlists, cleanQuery) {
@@ -170,6 +255,26 @@ fun LibraryScreen(
         }
     }
 
+    val sortedPlaylists = remember(filteredPlaylists, playlistSortField, sortDirection) {
+        filteredPlaylists.sortPlaylists(playlistSortField, sortDirection)
+    }
+
+    val sortedFavorites = remember(filteredFavorites, trackSortField, sortDirection) {
+        filteredFavorites.sortTracks(trackSortField, sortDirection)
+    }
+
+    val sortedDownloads = remember(filteredDownloads, trackSortField, sortDirection) {
+        filteredDownloads.sortTracks(trackSortField, sortDirection)
+    }
+
+    val sortedLocalTracks = remember(filteredLocalTracks, trackSortField, sortDirection) {
+        filteredLocalTracks.sortTracks(trackSortField, sortDirection)
+    }
+
+    val sortedRecent = remember(filteredRecent, trackSortField, sortDirection) {
+        filteredRecent.sortTracks(trackSortField, sortDirection)
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -208,39 +313,187 @@ fun LibraryScreen(
             }
         }
 
-        TextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 6.dp),
-            placeholder = {
-                Text(
-                    "Search in library…",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.weight(1f),
+                placeholder = {
+                    Text(
+                        "Search in library…",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                leadingIcon = {
+                    Icon(Icons.Rounded.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Clear library search", modifier = Modifier.size(19.dp))
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(18.dp),
+                textStyle = MaterialTheme.typography.bodyLarge,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    cursorColor = MaterialTheme.colorScheme.primary
                 )
-            },
-            leadingIcon = {
-                Icon(Icons.Rounded.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { searchQuery = "" }) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Clear library search", modifier = Modifier.size(19.dp))
+            )
+
+            Spacer(Modifier.width(8.dp))
+
+            val isCustomSort = if (selectedTab == LibraryTab.PLAYLISTS) {
+                playlistSortField != PlaylistSortField.DATE_UPDATED || sortDirection != SortDirection.DESCENDING
+            } else {
+                trackSortField != TrackSortField.DATE_ADDED || sortDirection != SortDirection.DESCENDING
+            }
+
+            Box {
+                Surface(
+                    onClick = { sortMenuOpen = true },
+                    shape = RoundedCornerShape(18.dp),
+                    color = if (isCustomSort) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+                    modifier = Modifier.height(56.dp)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.padding(horizontal = 14.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Rounded.Sort,
+                                contentDescription = "Sort by",
+                                tint = if (isCustomSort) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(18.dp),
-            textStyle = MaterialTheme.typography.bodyLarge,
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-                cursorColor = MaterialTheme.colorScheme.primary
-            )
-        )
+
+                DropdownMenu(
+                    expanded = sortMenuOpen,
+                    onDismissRequest = { sortMenuOpen = false },
+                    modifier = Modifier.widthIn(min = 200.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "ORDER",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Spacer(Modifier.width(16.dp))
+
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(3.dp),
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Surface(
+                                    onClick = {
+                                        sortDirectionName = SortDirection.ASCENDING.name
+                                        onSortSettingsChanged?.invoke(playlistSortFieldName, trackSortFieldName, SortDirection.ASCENDING.name)
+                                    },
+                                    shape = RoundedCornerShape(11.dp),
+                                    color = if (sortDirection == SortDirection.ASCENDING) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    contentColor = if (sortDirection == SortDirection.ASCENDING) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                ) {
+                                    Text(
+                                        "Asc ↑",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                    )
+                                }
+                                Surface(
+                                    onClick = {
+                                        sortDirectionName = SortDirection.DESCENDING.name
+                                        onSortSettingsChanged?.invoke(playlistSortFieldName, trackSortFieldName, SortDirection.DESCENDING.name)
+                                    },
+                                    shape = RoundedCornerShape(11.dp),
+                                    color = if (sortDirection == SortDirection.DESCENDING) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    contentColor = if (sortDirection == SortDirection.DESCENDING) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                ) {
+                                    Text(
+                                        "Desc ↓",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+
+                    Row(
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 4.dp)
+                    ) {
+                        Text(
+                            "SORT BY",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    if (selectedTab == LibraryTab.PLAYLISTS) {
+                        PlaylistSortField.entries.forEach { field ->
+                            DropdownMenuItem(
+                                text = { Text(field.label) },
+                                trailingIcon = if (playlistSortField == field) {
+                                    { Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                                } else null,
+                                onClick = {
+                                    playlistSortFieldName = field.name
+                                    onSortSettingsChanged?.invoke(field.name, trackSortFieldName, sortDirectionName)
+                                    sortMenuOpen = false
+                                }
+                            )
+                        }
+                    } else {
+                        TrackSortField.entries.forEach { field ->
+                            DropdownMenuItem(
+                                text = { Text(field.label) },
+                                trailingIcon = if (trackSortField == field) {
+                                    { Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                                } else null,
+                                onClick = {
+                                    trackSortFieldName = field.name
+                                    onSortSettingsChanged?.invoke(playlistSortFieldName, field.name, sortDirectionName)
+                                    sortMenuOpen = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
         Row(
             Modifier
@@ -265,17 +518,17 @@ fun LibraryScreen(
         ) {
             when (selectedTab) {
                 LibraryTab.PLAYLISTS -> PlaylistsContent(
-                    playlists = filteredPlaylists,
+                    playlists = sortedPlaylists,
                     importStates = importStates,
                     onCreate = { showCreateDialog = true },
                     onOpenPlaylist = onOpenPlaylist
                 )
                 LibraryTab.LIKED -> TrackCollection(
-                    tracks = filteredFavorites,
+                    tracks = sortedFavorites,
                     userStates = userStates,
                     currentTrackId = currentTrackId,
                     isPlaying = isPlaying,
-                    title = if (cleanQuery.isEmpty()) "Liked songs" else "Search results (${filteredFavorites.size})",
+                    title = if (cleanQuery.isEmpty()) "Liked songs" else "Search results (${sortedFavorites.size})",
                     subtitle = if (cleanQuery.isNotEmpty()) "Matching “$cleanQuery” in Liked"
                     else if (favorites.isEmpty()) "Every song you love, in one place"
                     else "${favorites.size} songs · ${totalTime(favorites)}",
@@ -290,11 +543,11 @@ fun LibraryScreen(
                     onTrackMore = { onTrackMore(it, null) }
                 )
                 LibraryTab.DOWNLOADS -> TrackCollection(
-                    tracks = filteredDownloads,
+                    tracks = sortedDownloads,
                     userStates = userStates,
                     currentTrackId = currentTrackId,
                     isPlaying = isPlaying,
-                    title = if (cleanQuery.isEmpty()) "Available offline" else "Search results (${filteredDownloads.size})",
+                    title = if (cleanQuery.isEmpty()) "Available offline" else "Search results (${sortedDownloads.size})",
                     subtitle = if (cleanQuery.isNotEmpty()) "Matching “$cleanQuery” in Offline"
                     else if (downloads.isEmpty()) "Music that travels with you"
                     else "${downloads.size} tracks · ${totalTime(downloads)}",
@@ -309,7 +562,7 @@ fun LibraryScreen(
                     onTrackMore = { onTrackMore(it, null) }
                 )
                 LibraryTab.LOCAL -> LocalContent(
-                    tracks = filteredLocalTracks,
+                    tracks = sortedLocalTracks,
                     audioPermission = audioPermission,
                     localLoading = localLoading,
                     userStates = userStates,
@@ -322,11 +575,11 @@ fun LibraryScreen(
                     onTrackMore = { onTrackMore(it, null) }
                 )
                 LibraryTab.RECENT -> TrackCollection(
-                    tracks = filteredRecent,
+                    tracks = sortedRecent,
                     userStates = userStates,
                     currentTrackId = currentTrackId,
                     isPlaying = isPlaying,
-                    title = if (cleanQuery.isEmpty()) "Recently played" else "Search results (${filteredRecent.size})",
+                    title = if (cleanQuery.isEmpty()) "Recently played" else "Search results (${sortedRecent.size})",
                     subtitle = if (cleanQuery.isNotEmpty()) "Matching “$cleanQuery” in Recent"
                     else if (recent.isEmpty()) "Your listening history lives here"
                     else "Last ${recent.size} tracks",
@@ -381,56 +634,65 @@ private fun PlaylistsContent(
     onCreate: () -> Unit,
     onOpenPlaylist: (String) -> Unit
 ) {
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 150.dp),
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 26.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(15.dp)
-    ) {
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 2.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("Playlists", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground)
-                    Text(
-                        if (playlists.isEmpty()) "Build a set for every mood" else "${playlists.size} collections",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                TextButton(onClick = onCreate) {
-                    Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(17.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("New")
+    val gridState = rememberLazyGridState()
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyVerticalGrid(
+            state = gridState,
+            columns = GridCells.Adaptive(minSize = 150.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 26.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(15.dp)
+        ) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Playlists", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground)
+                        Text(
+                            if (playlists.isEmpty()) "Build a set for every mood" else "${playlists.size} collections",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    TextButton(onClick = onCreate) {
+                        Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(17.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("New")
+                    }
                 }
             }
-        }
-        item {
-            NewPlaylistTile(onClick = onCreate)
-        }
-        items(playlists, key = { it.id }) { playlist ->
-            PlaylistTile(
-                playlist = playlist,
-                importState = importStates[playlist.id],
-                onClick = { onOpenPlaylist(playlist.id) }
-            )
-        }
-        if (playlists.isEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                EmptyState(
-                    title = "Your first playlist awaits",
-                    message = "Collect full tracks, previews and local files into your own sets.",
-                    icon = Icons.Rounded.PlaylistPlay,
-                    actionLabel = "Create a playlist",
-                    action = onCreate
+            item {
+                NewPlaylistTile(onClick = onCreate)
+            }
+            items(playlists, key = { it.id }) { playlist ->
+                PlaylistTile(
+                    playlist = playlist,
+                    importState = importStates[playlist.id],
+                    onClick = { onOpenPlaylist(playlist.id) }
                 )
             }
+            if (playlists.isEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    EmptyState(
+                        title = "Your first playlist awaits",
+                        message = "Collect full tracks, previews and local files into your own sets.",
+                        icon = Icons.Rounded.PlaylistPlay,
+                        actionLabel = "Create a playlist",
+                        action = onCreate
+                    )
+                }
+            }
         }
+
+        FastScrollerForGrid(
+            gridState = gridState,
+            modifier = Modifier.align(Alignment.CenterEnd)
+        )
     }
 }
 
@@ -629,41 +891,51 @@ private fun TrackCollection(
     val decorated = remember(tracks, userStates) {
         tracks.map { it.withUserState(userStates[it.id]) }
     }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 28.dp)
-    ) {
-        item {
-            CollectionHeader(
-                title = title,
-                subtitle = subtitle,
-                tracks = decorated,
-                icon = emptyIcon,
-                onPlay = { if (decorated.isNotEmpty()) onPlayTracks(decorated, 0) },
-                onShuffle = { onShuffleTracks(decorated) }
-            )
-        }
-        if (decorated.isEmpty()) {
+    val listState = rememberLazyListState()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 28.dp)
+        ) {
             item {
-                EmptyState(
-                    title = emptyTitle,
-                    message = emptyMessage,
+                CollectionHeader(
+                    title = title,
+                    subtitle = subtitle,
+                    tracks = decorated,
                     icon = emptyIcon,
-                    actionLabel = emptyAction,
-                    action = onEmptyAction
+                    onPlay = { if (decorated.isNotEmpty()) onPlayTracks(decorated, 0) },
+                    onShuffle = { onShuffleTracks(decorated) }
                 )
             }
-        } else {
-            itemsIndexed(decorated, key = { _, track -> "library-${title}-${track.id}" }) { index, track ->
-                TrackRow(
-                    track = track,
-                    isCurrent = track.id == currentTrackId,
-                    isPlaying = isPlaying,
-                    onClick = { onPlayTracks(decorated, index) },
-                    onMore = { onTrackMore(track) }
-                )
+            if (decorated.isEmpty()) {
+                item {
+                    EmptyState(
+                        title = emptyTitle,
+                        message = emptyMessage,
+                        icon = emptyIcon,
+                        actionLabel = emptyAction,
+                        action = onEmptyAction
+                    )
+                }
+            } else {
+                itemsIndexed(decorated, key = { _, track -> "library-${title}-${track.id}" }) { index, track ->
+                    TrackRow(
+                        track = track,
+                        isCurrent = track.id == currentTrackId,
+                        isPlaying = isPlaying,
+                        onClick = { onPlayTracks(decorated, index) },
+                        onMore = { onTrackMore(track) }
+                    )
+                }
             }
         }
+
+        FastScroller(
+            listState = listState,
+            modifier = Modifier.align(Alignment.CenterEnd)
+        )
     }
 }
 
@@ -798,74 +1070,84 @@ private fun LocalContent(
     val decorated = remember(tracks, userStates) {
         tracks.map { it.withUserState(userStates[it.id]) }
     }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 28.dp)
-    ) {
-        item {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("On this device", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground)
-                    Text(
-                        if (localLoading) "Scanning your storage…" else "${decorated.size} tracks · no connection needed",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (decorated.isNotEmpty()) {
-                    IconButton(onClick = { onShuffleTracks(decorated) }) {
-                        Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle local music", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                IconButton(onClick = onScanLocal) {
-                    Icon(Icons.Rounded.Refresh, contentDescription = "Rescan local music", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-        if (localLoading) {
+    val listState = rememberLazyListState()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 28.dp)
+        ) {
             item {
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 42.dp),
-                    horizontalArrangement = Arrangement.Center,
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text("Scanning MediaStore…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(Modifier.weight(1f)) {
+                        Text("On this device", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground)
+                        Text(
+                            if (localLoading) "Scanning your storage…" else "${decorated.size} tracks · no connection needed",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (decorated.isNotEmpty()) {
+                        IconButton(onClick = { onShuffleTracks(decorated) }) {
+                            Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle local music", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    IconButton(onClick = onScanLocal) {
+                        Icon(Icons.Rounded.Refresh, contentDescription = "Rescan local music", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
-        } else if (decorated.isEmpty()) {
-            item {
-                EmptyState(
-                    title = "No audio found",
-                    message = "Add music to your device, then rescan. Local files always play offline.",
-                    icon = Icons.Rounded.MusicNote,
-                    actionLabel = "Scan again",
-                    action = onScanLocal
-                )
-            }
-        } else {
-            itemsIndexed(decorated, key = { _, track -> "local-${track.id}" }) { index, track ->
-                TrackRow(
-                    track = track,
-                    isCurrent = track.id == currentTrackId,
-                    isPlaying = isPlaying,
-                    onClick = { onPlayTracks(decorated, index) },
-                    onMore = { onTrackMore(track) }
-                )
+            if (localLoading) {
+                item {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 42.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text("Scanning MediaStore…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            } else if (decorated.isEmpty()) {
+                item {
+                    EmptyState(
+                        title = "No audio found",
+                        message = "Add music to your device, then rescan. Local files always play offline.",
+                        icon = Icons.Rounded.MusicNote,
+                        actionLabel = "Scan again",
+                        action = onScanLocal
+                    )
+                }
+            } else {
+                itemsIndexed(decorated, key = { _, track -> "local-${track.id}" }) { index, track ->
+                    TrackRow(
+                        track = track,
+                        isCurrent = track.id == currentTrackId,
+                        isPlaying = isPlaying,
+                        onClick = { onPlayTracks(decorated, index) },
+                        onMore = { onTrackMore(track) }
+                    )
+                }
             }
         }
+
+        FastScroller(
+            listState = listState,
+            modifier = Modifier.align(Alignment.CenterEnd)
+        )
     }
 }
 

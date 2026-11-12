@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.PlaylistAdd
@@ -78,6 +79,7 @@ fun TrackActionSheet(
     onDownload: () -> Unit,
     onOpenAddToPlaylist: () -> Unit,
     onRemoveFromPlaylist: (() -> Unit)?,
+    onAddToHomeCard: (() -> Unit)? = null,
     onOpenUrl: (String) -> Unit,
     onShare: () -> Unit
 ) {
@@ -218,6 +220,21 @@ fun TrackActionSheet(
                     subtitle = "Collect it in your own set",
                     onClick = onOpenAddToPlaylist
                 )
+                if (onAddToHomeCard != null) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 14.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    )
+                    ActionRow(
+                        icon = Icons.Rounded.Home,
+                        title = "Add to home card",
+                        subtitle = "Feature this song on your Made for You card",
+                        onClick = {
+                            onAddToHomeCard()
+                            onDismiss()
+                        }
+                    )
+                }
                 if (onRemoveFromPlaylist != null) {
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 14.dp),

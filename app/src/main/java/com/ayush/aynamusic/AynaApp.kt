@@ -7,9 +7,12 @@ import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -196,15 +199,15 @@ fun AynaApp(viewModel: MainViewModel) {
         contentColor = MaterialTheme.colorScheme.onBackground
     ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
-        val wide = maxWidth >= 720.dp
-        val rootRoute = MainTab.entries.any { it.route == activeRoute }
-        val fullPlayer = activeRoute == Routes.PLAYER
-        val hasBottomBar = rootRoute && !wide && !fullPlayer
-        val hasMiniPlayer = currentTrack != null && !fullPlayer
-        val needsOuterNavInset = !hasBottomBar && !fullPlayer
+            val wide = this.maxWidth >= 720.dp
+            val rootRoute = MainTab.entries.any { it.route == activeRoute }
+            val fullPlayer = activeRoute == Routes.PLAYER
+            val hasBottomBar = rootRoute && !wide
+            val hasMiniPlayer = currentTrack != null && !fullPlayer
+            val needsOuterNavInset = !hasBottomBar && !fullPlayer
 
-        Row(Modifier.fillMaxSize()) {
-            if (wide && !fullPlayer) {
+            Row(Modifier.fillMaxSize()) {
+                if (wide && !fullPlayer) {
                 AynaNavigationRail(
                     current = if (rootRoute) activeRoute.orEmpty() else "",
                     onSelect = navigateTab,
@@ -234,6 +237,7 @@ fun AynaApp(viewModel: MainViewModel) {
                         composable(Routes.HOME) {
                             HomeScreen(
                                 home = homeState.feed,
+                                heroTrack = settings.getHeroTrack(),
                                 homeLoading = homeState.loading,
                                 homeError = homeState.error,
                                 recent = recent,
@@ -306,8 +310,10 @@ fun AynaApp(viewModel: MainViewModel) {
                                 localLoading = localLoading,
                                 currentTrackId = playbackState.currentTrack?.id,
                                 isPlaying = playbackState.isPlaying,
+                                savedSortSettings = Triple(settings.playlistSortField, settings.trackSortField, settings.sortDirection),
                                 selectedTab = libraryTab,
                                 onTabChange = { libraryTab = it },
+                                onSortSettingsChanged = viewModel::setSortSettings,
                                 onOpenPlaylist = { id ->
                                     navController.navigate(Routes.playlist(id))
                                 },
@@ -401,42 +407,7 @@ fun AynaApp(viewModel: MainViewModel) {
                         }
 
                         composable(Routes.PLAYER) {
-                            NowPlayingScreen(
-                                track = currentTrack,
-                                playback = playbackState,
-                                equalizerEnabled = equalizerState.enabled,
-                                onBack = {
-                                    if (!navController.popBackStack()) {
-                                        navController.navigate(Routes.HOME)
-                                    }
-                                },
-                                onMore = { track ->
-                                    playerSheet = PlayerSheet.Actions(track, null)
-                                },
-                                onTogglePlayPause = viewModel::togglePlayPause,
-                                onNext = viewModel::next,
-                                onPrevious = viewModel::previous,
-                                onSeek = viewModel::seekTo,
-                                onShuffle = viewModel::toggleShuffle,
-                                onRepeat = viewModel::cycleRepeat,
-                                onFavorite = viewModel::toggleFavorite,
-                                onDownload = { track ->
-                                    when {
-                                        track.isDownloaded -> viewModel.removeDownload(track)
-                                        track.downloadState == com.ayush.aynamusic.data.model.DownloadState.DOWNLOADING ||
-                                            track.downloadState == com.ayush.aynamusic.data.model.DownloadState.QUEUED -> Unit
-                                        else -> viewModel.downloadTrack(track)
-                                    }
-                                },
-                                onSleepTimer = { playerSheet = PlayerSheet.Sleep },
-                                onSpeed = { playerSheet = PlayerSheet.Speed },
-                                onLyrics = {
-                                    viewModel.loadLyrics()
-                                    playerSheet = PlayerSheet.Lyrics
-                                },
-                                onQueue = { playerSheet = PlayerSheet.Queue },
-                                onEqualizer = { playerSheet = PlayerSheet.Equalizer }
-                            )
+                            Box(Modifier.fillMaxSize())
                         }
                     }
                 }
@@ -470,6 +441,49 @@ fun AynaApp(viewModel: MainViewModel) {
                     )
                 }
             }
+        }
+
+        AnimatedVisibility(
+            visible = fullPlayer,
+            enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(300)) + fadeIn(tween(200)),
+            exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(280)) + fadeOut(tween(180))
+        ) {
+            NowPlayingScreen(
+                track = currentTrack,
+                playback = playbackState,
+                equalizerEnabled = equalizerState.enabled,
+                onBack = {
+                    if (!navController.popBackStack()) {
+                        navController.navigate(Routes.HOME)
+                    }
+                },
+                onMore = { track ->
+                    playerSheet = PlayerSheet.Actions(track, null)
+                },
+                onTogglePlayPause = viewModel::togglePlayPause,
+                onNext = viewModel::next,
+                onPrevious = viewModel::previous,
+                onSeek = viewModel::seekTo,
+                onShuffle = viewModel::toggleShuffle,
+                onRepeat = viewModel::cycleRepeat,
+                onFavorite = viewModel::toggleFavorite,
+                onDownload = { track ->
+                    when {
+                        track.isDownloaded -> viewModel.removeDownload(track)
+                        track.downloadState == com.ayush.aynamusic.data.model.DownloadState.DOWNLOADING ||
+                            track.downloadState == com.ayush.aynamusic.data.model.DownloadState.QUEUED -> Unit
+                        else -> viewModel.downloadTrack(track)
+                    }
+                },
+                onSleepTimer = { playerSheet = PlayerSheet.Sleep },
+                onSpeed = { playerSheet = PlayerSheet.Speed },
+                onLyrics = {
+                    viewModel.loadLyrics()
+                    playerSheet = PlayerSheet.Lyrics
+                },
+                onQueue = { playerSheet = PlayerSheet.Queue },
+                onEqualizer = { playerSheet = PlayerSheet.Equalizer }
+            )
         }
 
         SnackbarHost(
@@ -572,6 +586,10 @@ fun AynaApp(viewModel: MainViewModel) {
                                 viewModel.removeFromPlaylist(listId, latest)
                                 playerSheet = null
                             }
+                        },
+                        onAddToHomeCard = {
+                            viewModel.setHeroTrack(latest)
+                            playerSheet = null
                         },
                         onOpenUrl = { url ->
                             if (!openExternal(context, url)) {

@@ -13,7 +13,10 @@ import com.ayush.aynamusic.data.local.toTrack
 import com.ayush.aynamusic.data.model.DownloadState
 import com.ayush.aynamusic.data.model.PlaylistSummary
 import com.ayush.aynamusic.data.model.Track
+import com.ayush.aynamusic.data.model.UserInterestProfile
 import com.ayush.aynamusic.data.model.UserTrackState
+import com.ayush.aynamusic.data.local.UserTrackMemoryEntity
+import com.ayush.aynamusic.data.remote.MusicTrackUtils
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -27,6 +30,9 @@ class LibraryRepository(
     private val tracks = database.trackDao()
     private val playlists = database.playlistDao()
     private val recents = database.recentDao()
+    private val userMemoryDao = database.userTrackMemoryDao()
+
+    val userTrackMemories: Flow<List<UserTrackMemoryEntity>> = userMemoryDao.observeTopAffinityTracks()
 
     val favorites: Flow<List<Track>> = tracks.observeFavorites()
         .map { list -> list.map(TrackEntity::toTrack) }
@@ -72,6 +78,217 @@ class LibraryRepository(
         tracks.upsert(entity)
         recents.record(RecentEntity(track.id, now))
         recents.trim()
+    }
+
+    suspend fun recordPlaybackMemory(
+        track: Track,
+        playDurationMs: Long,
+        completionRatio: Double
+    ) = withContext(Dispatchers.IO) {
+        val existing = userMemoryDao.get(track.id)
+        val now = System.currentTimeMillis()
+
+        val ratio = completionRatio.coerceIn(0.0, 1.0)
+        val isNiche = MusicTrackUtils.isNicheTrack(track)
+        val nicheScore = MusicTrackUtils.calculateNicheScore(track)
+        val lang = MusicTrackUtils.detectLanguageTag(track) ?: MusicTrackUtils.cleanHtml(track.genre)
+        val genre = MusicTrackUtils.extractGenre(track)
+
+        val playCount = (existing?.playCount ?: 0) + 1
+        val completed = ratio >= 0.75
+        val skipped = ratio < 0.25
+        val completionCount = (existing?.completionCount ?: 0) + (if (completed) 1 else 0)
+        val skipCount = (existing?.skipCount ?: 0) + (if (skipped) 1 else 0)
+        val totalDuration = (existing?.totalPlayDurationMs ?: 0L) + playDurationMs
+
+        val t0 = (existing?.tier0Count ?: 0) + (if (ratio < 0.10) 1 else 0)
+        val t1 = (existing?.tier1Count ?: 0) + (if (ratio >= 0.10 && ratio < 0.25) 1 else 0)
+        val t2 = (existing?.tier2Count ?: 0) + (if (ratio >= 0.25 && ratio < 0.50) 1 else 0)
+        val t3 = (existing?.tier3Count ?: 0) + (if (ratio >= 0.50 && ratio < 0.75) 1 else 0)
+        val t4 = (existing?.tier4Count ?: 0) + (if (ratio >= 0.75 && ratio < 0.90) 1 else 0)
+        val t5 = (existing?.tier5Count ?: 0) + (if (ratio >= 0.90) 1 else 0)
+
+        val prevAvg = existing?.avgCompletionRatio ?: 0.0
+        val avgRatio = ((prevAvg * (playCount - 1)) + ratio) / playCount
+
+        val playlistBonus = (existing?.playlistOccurrenceCount ?: 0) * 5.0
+        val favoriteBonus = if (track.isFavorite) 6.0 else 0.0
+        val nicheBonus = if (isNiche) 2.0 else 0.0
+        val tierWeightedSum = (t5 * 12.0) + (t4 * 7.0) + (t3 * 3.0) + (t2 * -1.0) + (t1 * -5.0) + (t0 * -10.0)
+
+        val affinity = tierWeightedSum + playlistBonus + favoriteBonus + nicheBonus
+
+        val memory = UserTrackMemoryEntity(
+            trackId = track.id,
+            title = track.title,
+            artist = track.artist,
+            genre = genre,
+            language = lang,
+            playCount = playCount,
+            completionCount = completionCount,
+            skipCount = skipCount,
+            totalPlayDurationMs = totalDuration,
+            lastPlayedAt = now,
+            isNiche = isNiche,
+            nicheScore = nicheScore,
+            affinityScore = affinity,
+            source = track.source.name,
+            tier0Count = t0,
+            tier1Count = t1,
+            tier2Count = t2,
+            tier3Count = t3,
+            tier4Count = t4,
+            tier5Count = t5,
+            lastCompletionRatio = ratio,
+            avgCompletionRatio = avgRatio,
+            playlistOccurrenceCount = existing?.playlistOccurrenceCount ?: 0
+        )
+        userMemoryDao.upsert(memory)
+    }
+
+    suspend fun getUserTrackMemory(trackId: String): UserTrackMemoryEntity? = withContext(Dispatchers.IO) {
+        userMemoryDao.get(trackId)
+    }
+
+    suspend fun getAllUserTrackMemories(): List<UserTrackMemoryEntity> = withContext(Dispatchers.IO) {
+        userMemoryDao.getAllMemories()
+    }
+
+    suspend fun getNicheTrackMemories(): List<UserTrackMemoryEntity> = withContext(Dispatchers.IO) {
+        userMemoryDao.getNicheMemories()
+    }
+
+    suspend fun isNicheListenerForGenreLanguage(genre: String?, language: String?): Boolean = withContext(Dispatchers.IO) {
+        if (genre.isNullOrBlank() && language.isNullOrBlank()) return@withContext false
+        val g = genre.orEmpty()
+        val l = language.orEmpty()
+        val memories = userMemoryDao.getNicheMemoriesByGenreLanguage(g, l)
+        memories.isNotEmpty() && memories.any { it.tier4Count + it.tier5Count > 0 || it.playCount > 1 || it.affinityScore > 0 }
+    }
+
+    suspend fun minePlaylistTasteData(): Triple<Map<String, Double>, Map<String, Double>, Set<String>> = withContext(Dispatchers.IO) {
+        val allPlaylists = playlists.getAll()
+        val minedArtistCounts = mutableMapOf<String, Int>()
+        val minedGenreCounts = mutableMapOf<String, Int>()
+        val minedTrackIds = mutableSetOf<String>()
+
+        val playlistTrackCounts = mutableMapOf<String, Int>()
+
+        for (p in allPlaylists) {
+            val pTracks = playlists.getPlaylistTracks(p.id)
+            for (pt in pTracks) {
+                minedTrackIds.add(pt.trackId)
+                playlistTrackCounts[pt.trackId] = (playlistTrackCounts[pt.trackId] ?: 0) + 1
+            }
+        }
+
+        val allUserTracksMap = tracks.getByIds(minedTrackIds.toList()).associateBy { it.id }
+
+        for ((trackId, occurrences) in playlistTrackCounts) {
+            val trackEntity = allUserTracksMap[trackId] ?: continue
+            val normArtist = MusicTrackUtils.normalizeArtist(trackEntity.artist)
+            if (normArtist.isNotBlank()) {
+                minedArtistCounts[normArtist] = (minedArtistCounts[normArtist] ?: 0) + occurrences
+            }
+            if (!trackEntity.genre.isNullOrBlank()) {
+                val g = trackEntity.genre.lowercase().trim()
+                minedGenreCounts[g] = (minedGenreCounts[g] ?: 0) + occurrences
+            }
+
+            val existingMem = userMemoryDao.get(trackId)
+            if (existingMem != null && existingMem.playlistOccurrenceCount != occurrences) {
+                val updatedMem = existingMem.copy(
+                    playlistOccurrenceCount = occurrences,
+                    affinityScore = existingMem.affinityScore + (occurrences - existingMem.playlistOccurrenceCount) * 5.0
+                )
+                userMemoryDao.upsert(updatedMem)
+            }
+        }
+
+        val maxArtistCount = minedArtistCounts.values.maxOrNull()?.toDouble()?.coerceAtLeast(1.0) ?: 1.0
+        val normArtists = minedArtistCounts.mapValues { it.value / maxArtistCount }
+
+        val maxGenreCount = minedGenreCounts.values.maxOrNull()?.toDouble()?.coerceAtLeast(1.0) ?: 1.0
+        val normGenres = minedGenreCounts.mapValues { it.value / maxGenreCount }
+
+        Triple(normArtists, normGenres, minedTrackIds)
+    }
+
+    suspend fun getUserInterestProfile(): UserInterestProfile = withContext(Dispatchers.IO) {
+        val memories = userMemoryDao.getAllMemories()
+        val allUserTracks = tracks.getAllUserTracks()
+        val favIds = allUserTracks.filter { it.favorite }.map { it.id }.toSet()
+
+        val (minedArtists, minedGenres, minedTrackIds) = minePlaylistTasteData()
+
+        if (memories.isEmpty() && favIds.isEmpty() && minedTrackIds.isEmpty()) {
+            return@withContext UserInterestProfile()
+        }
+
+        val artistScores = mutableMapOf<String, Double>()
+        val genreScores = mutableMapOf<String, Double>()
+        val langScores = mutableMapOf<String, Double>()
+        val highAffinity = mutableSetOf<String>()
+        val skipped = mutableSetOf<String>()
+
+        var nicheCount = 0
+        var sumAvgRatios = 0.0
+        val totalCount = memories.size
+
+        favIds.forEach { highAffinity.add(it) }
+        minedTrackIds.forEach { highAffinity.add(it) }
+
+        for (m in memories) {
+            if (m.isNiche) nicheCount++
+            sumAvgRatios += m.avgCompletionRatio
+
+            val weight = m.affinityScore.coerceAtLeast(0.1)
+            val cleanArt = MusicTrackUtils.normalizeArtist(m.artist)
+            if (cleanArt.isNotBlank()) {
+                artistScores[cleanArt] = (artistScores[cleanArt] ?: 0.0) + weight
+            }
+            if (!m.genre.isNullOrBlank()) {
+                val g = m.genre.lowercase().trim()
+                genreScores[g] = (genreScores[g] ?: 0.0) + weight
+            }
+            if (!m.language.isNullOrBlank()) {
+                val l = m.language.lowercase().trim()
+                langScores[l] = (langScores[l] ?: 0.0) + weight
+            }
+
+            if (m.affinityScore >= 2.0 || m.tier4Count + m.tier5Count >= 1 || m.avgCompletionRatio >= 0.75) {
+                highAffinity.add(m.trackId)
+            }
+            if (m.tier0Count + m.tier1Count >= 2 || (m.tier0Count + m.tier1Count > m.tier4Count + m.tier5Count + 1)) {
+                skipped.add(m.trackId)
+            }
+        }
+
+        val totalArtistSum = artistScores.values.sum().coerceAtLeast(1.0)
+        val normalizedArtists = artistScores.mapValues { it.value / totalArtistSum }
+
+        val totalGenreSum = genreScores.values.sum().coerceAtLeast(1.0)
+        val normalizedGenres = genreScores.mapValues { it.value / totalGenreSum }
+
+        val totalLangSum = langScores.values.sum().coerceAtLeast(1.0)
+        val normalizedLanguages = langScores.mapValues { it.value / totalLangSum }
+
+        val overallAvgRatio = if (totalCount > 0) sumAvgRatios / totalCount.toDouble() else 0.0
+        val nicheRatio = if (totalCount > 0) nicheCount.toDouble() / totalCount.toDouble() else 0.0
+
+        UserInterestProfile(
+            topArtists = normalizedArtists,
+            topGenres = normalizedGenres,
+            topLanguages = normalizedLanguages,
+            minedPlaylistArtists = minedArtists,
+            minedPlaylistGenres = minedGenres,
+            minedPlaylistTrackIds = minedTrackIds,
+            highAffinityTrackIds = highAffinity,
+            skippedTrackIds = skipped,
+            avgCompletionRatio = overallAvgRatio,
+            nicheRatio = nicheRatio,
+            totalTrackedSongs = totalCount
+        )
     }
 
     suspend fun toggleFavorite(track: Track): Boolean {
